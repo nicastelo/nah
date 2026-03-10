@@ -299,13 +299,17 @@ def cmd_config(args: argparse.Namespace) -> None:
         from nah.config import get_config
         cfg = get_config()
         print("Effective config (merged):")
-        print(f"  classify:              {cfg.classify or '{}'}")
+        print(f"  profile:               {cfg.profile}")
+        print(f"  classify_global:       {cfg.classify_global or '{}'}")
+        print(f"  classify_project:      {cfg.classify_project or '{}'}")
         print(f"  actions:               {cfg.actions or '{}'}")
         print(f"  sensitive_paths_default: {cfg.sensitive_paths_default}")
         print(f"  sensitive_paths:       {cfg.sensitive_paths or '{}'}")
         print(f"  allow_paths:           {cfg.allow_paths or '{}'}")
         print(f"  known_registries:      {cfg.known_registries or '[]'}")
         print(f"  llm:                   {cfg.llm or '{}'}")
+        print(f"  llm_max_decision:      {cfg.llm_max_decision}")
+        print(f"  ask_fallback:          {cfg.ask_fallback}")
     elif sub == "path":
         from nah.config import get_global_config_path, get_project_config_path
         print(f"Global:  {get_global_config_path()}")
