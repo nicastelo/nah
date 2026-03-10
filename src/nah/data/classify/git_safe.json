@@ -5,6 +5,16 @@
   "git show",
   "git branch",
   "git tag",
-  "git remote -v",
-  "git stash list"
+  "git remote",
+  "git stash list",
+  "git rev-parse",
+  "git rev-list",
+  "git describe",
+  "git shortlog",
+  "git config",
+  "git ls-files",
+  "git ls-tree",
+  "git cat-file",
+  "git name-rev",
+  "git for-each-ref"
 ]
