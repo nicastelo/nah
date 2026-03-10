@@ -7,5 +7,12 @@
   "git merge",
   "git stash",
   "git checkout",
-  "git switch"
+  "git switch",
+  "git remote add",
+  "git remote remove",
+  "git remote rename",
+  "git remote set-url",
+  "git config --unset",
+  "git config --unset-all",
+  "git config --replace-all"
 ]
