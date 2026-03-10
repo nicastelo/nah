@@ -105,6 +105,18 @@ HANDLERS = {
 }
 
 
+def _to_hook_output(decision: dict) -> dict:
+    """Convert internal decision to Claude Code hookSpecificOutput protocol."""
+    d = decision.get("decision", taxonomy.ALLOW)
+    reason = decision.get("reason", decision.get("message", ""))
+    # Map internal → protocol: allow→allow, ask→ask, block→deny
+    perm = "deny" if d == taxonomy.BLOCK else d
+    result = {"hookSpecificOutput": {"permissionDecision": perm}}
+    if reason:
+        result["hookSpecificOutput"]["permissionDecisionReason"] = reason
+    return result
+
+
 def main():
     try:
         data = json.loads(sys.stdin.read())
@@ -117,13 +129,17 @@ def main():
         else:
             decision = handler(tool_input)
 
-        json.dump(decision, sys.stdout)
+        json.dump(_to_hook_output(decision), sys.stdout)
         sys.stdout.write("\n")
         sys.stdout.flush()
     except Exception as e:
         sys.stderr.write(f"nah: error: {e}\n")
         try:
-            json.dump({"decision": "ask", "message": "nah: internal error, requesting confirmation"}, sys.stdout)
+            output = {"hookSpecificOutput": {
+                "permissionDecision": "ask",
+                "permissionDecisionReason": f"nah: internal error: {e}",
+            }}
+            json.dump(output, sys.stdout)
             sys.stdout.write("\n")
             sys.stdout.flush()
         except BrokenPipeError:

@@ -290,8 +290,9 @@ class TestErrorDefaultAsk:
             capture_output=True, text=True,
         )
         out = json.loads(result.stdout)
-        assert out["decision"] == "ask"
-        assert "internal error" in out.get("message", "")
+        hso = out["hookSpecificOutput"]
+        assert hso["permissionDecision"] == "ask"
+        assert "error" in hso.get("permissionDecisionReason", "")
 
     def test_malformed_json_returns_ask(self):
         result = subprocess.run(
@@ -300,7 +301,8 @@ class TestErrorDefaultAsk:
             capture_output=True, text=True,
         )
         out = json.loads(result.stdout)
-        assert out["decision"] == "ask"
+        hso = out["hookSpecificOutput"]
+        assert hso["permissionDecision"] == "ask"
 
     def test_stderr_has_error_info(self):
         result = subprocess.run(
