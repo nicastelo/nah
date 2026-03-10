@@ -70,7 +70,8 @@ class TestErrorHandling:
             capture_output=True, text=True,
         )
         out = json.loads(result.stdout)
-        assert out["decision"] == "allow"
+        assert out["decision"] == "ask"
+        assert "internal error" in out.get("message", "")
 
     def test_invalid_json(self):
         result = subprocess.run(
@@ -79,7 +80,8 @@ class TestErrorHandling:
             capture_output=True, text=True,
         )
         out = json.loads(result.stdout)
-        assert out["decision"] == "allow"
+        assert out["decision"] == "ask"
+        assert "internal error" in out.get("message", "")
 
     def test_unknown_tool(self):
         out = run_hook({"tool_name": "UnknownTool", "tool_input": {"x": "y"}})

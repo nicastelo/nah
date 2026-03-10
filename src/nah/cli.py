@@ -19,40 +19,72 @@ _TOOL_NAMES = ["Bash", "Read", "Write", "Edit", "Glob", "Grep"]
 _SHIM_TEMPLATE = '''\
 #!{interpreter}
 """nah guard — thin shim that imports from the installed nah package."""
-import signal, sys, json, os
+import sys, json, os, io
 
-# Die silently on broken pipe instead of cascading BrokenPipeError.
-signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+# Capture real stdout immediately — before anything can reassign it.
+_REAL_STDOUT = sys.stdout
+_ASK = '{{"decision": "ask", "message": "nah: error, requesting confirmation"}}\\n'
+_LOG_PATH = os.path.join(os.path.expanduser("~"), ".config", "nah", "hook-errors.log")
+_LOG_MAX = 1_000_000  # 1 MB
 
-def _allow():
-    """Write allow decision, suppressing broken pipe."""
+def _log_error(tool_name, error):
+    """Append crash entry to log file. Never raises."""
     try:
-        json.dump({{"decision": "allow"}}, sys.stdout)
-        sys.stdout.write("\\n")
-        sys.stdout.flush()
-    except BrokenPipeError:
-        os._exit(0)
+        from datetime import datetime
+        ts = datetime.now().isoformat(timespec="seconds")
+        etype = type(error).__name__
+        msg = str(error)[:200]
+        line = f"{{ts}} {{tool_name or 'unknown'}} {{etype}}: {{msg}}\\n"
+        os.makedirs(os.path.dirname(_LOG_PATH), exist_ok=True)
+        try:
+            size = os.path.getsize(_LOG_PATH)
+        except OSError:
+            size = 0
+        if size > _LOG_MAX:
+            with open(_LOG_PATH, "w") as f:
+                f.write(line)
+        else:
+            with open(_LOG_PATH, "a") as f:
+                f.write(line)
+    except Exception:
+        pass
 
+def _safe_write(data):
+    """Write string to real stdout, exit clean on broken pipe."""
+    try:
+        _REAL_STDOUT.write(data)
+        _REAL_STDOUT.flush()
+    except BrokenPipeError:
+        pass
+
+tool_name = ""
 try:
+    buf = io.StringIO()
+    sys.stdout = buf
     from nah.hook import main
     main()
-except ImportError:
-    sys.stderr.write("nah: package not found, allowing (run `nah install` to fix)\\n")
-    _allow()
+    sys.stdout = _REAL_STDOUT
+    output = buf.getvalue()
+    # Validate JSON
+    try:
+        json.loads(output)
+        _safe_write(output)
+    except (json.JSONDecodeError, ValueError):
+        _log_error(tool_name, ValueError(f"invalid JSON from main: {{output[:200]}}"))
+        _safe_write(_ASK)
 except BaseException as e:
-    sys.stderr.write(f"nah: error: {{e}}, allowing\\n")
-    _allow()
+    sys.stdout = _REAL_STDOUT
+    _log_error(tool_name, e)
+    _safe_write(_ASK)
 
-try:
-    sys.stdout.flush()
-except BrokenPipeError:
-    os._exit(0)
+# Always exit clean — prevent Python shutdown from flushing/crashing.
+os._exit(0)
 '''
 
 
 def _hook_command() -> str:
     """Build the command string for settings.json hook entries."""
-    return f'{sys.executable} "$HOME/.claude/hooks/nah_guard.py"'
+    return f"{sys.executable} {_HOOK_SCRIPT}"
 
 
 def _read_settings() -> dict:
@@ -210,27 +242,18 @@ def cmd_test(args: argparse.Namespace) -> None:
             print("Stages:")
             for i, sr in enumerate(result.stages, 1):
                 tokens_str = " ".join(sr.tokens)
-                print(f"  [{i}] {tokens_str} → {sr.action_type} → {sr.policy} → {sr.decision} ({sr.reason})")
+                print(f"  [{i}] {tokens_str} → {sr.action_type} → {sr.default_policy} → {sr.decision} ({sr.reason})")
         if result.composition_rule:
             print(f"Composition: {result.composition_rule} → {result.final_decision.upper()}")
         print(f"Decision:    {result.final_decision.upper()}")
         print(f"Reason:      {result.reason}")
     elif tool in ("Write", "Edit"):
-        # Write/Edit: path check + content inspection
-        from nah import paths
-        from nah.content import scan_content, format_content_message
+        # Write/Edit: reuse hook handlers
+        from nah.hook import handle_write, handle_edit
         raw_input = " ".join(input_args)
-        # Path check
-        check = paths.check_path(tool, raw_input)
-        if check:
-            decision = check
-        else:
-            # Content inspection
-            matches = scan_content(raw_input)
-            if matches:
-                decision = {"decision": "ask", "message": format_content_message(tool, matches)}
-            else:
-                decision = {"decision": "allow"}
+        content_field = "content" if tool == "Write" else "new_string"
+        handler = handle_write if tool == "Write" else handle_edit
+        decision = handler({"file_path": raw_input, content_field: raw_input})
         print(f"Tool:     {tool}")
         print(f"Input:    {raw_input[:100]}")
         print(f"Decision: {decision['decision'].upper()}")
@@ -242,7 +265,7 @@ def cmd_test(args: argparse.Namespace) -> None:
         from nah import paths
         raw_path = " ".join(input_args)
         check = paths.check_path(tool, raw_path)
-        decision = check or {"decision": "allow"}
+        decision = check or {"decision": "allow"}  # JSON protocol
         print(f"Tool:     {tool}")
         print(f"Input:    {raw_path}")
         print(f"Decision: {decision['decision'].upper()}")

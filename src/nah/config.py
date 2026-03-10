@@ -1,14 +1,14 @@
 """Config loading — YAML config with global + project merge."""
 
 import os
+import sys
 from dataclasses import dataclass, field
+
+from nah.taxonomy import STRICTNESS as _STRICTNESS
 
 _CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah")
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
 _PROJECT_CONFIG_NAME = ".nah.yaml"
-
-# Strictness ordering for tighten-only merge.
-_STRICTNESS = {"allow": 0, "context": 1, "ask": 2, "block": 3}
 
 
 @dataclass
@@ -57,54 +57,58 @@ def _load_yaml_file(path: str) -> dict:
     try:
         import yaml
     except ImportError:
+        sys.stderr.write("nah: yaml module not available, config ignored\n")
         return {}
     try:
         with open(path) as f:
             data = yaml.safe_load(f)
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except Exception as e:
+        sys.stderr.write(f"nah: config parse error in {path}: {e}\n")
         return {}
+
+
+def _validate_dict(val) -> dict:
+    """Return val if dict, else empty dict."""
+    return val if isinstance(val, dict) else {}
+
+
+def _merge_dict_tighten(global_d: dict, project_d: dict) -> dict:
+    """Merge two dicts — project can only tighten (stricter policy wins)."""
+    merged = dict(global_d)
+    for key, val in project_d.items():
+        if key in merged:
+            if _STRICTNESS.get(val, 2) >= _STRICTNESS.get(merged[key], 2):
+                merged[key] = val
+        else:
+            merged[key] = val
+    return merged
+
+
+def _merge_list_union(global_l, project_l) -> list:
+    """Union two lists, deduped, preserving order."""
+    if not isinstance(global_l, list):
+        global_l = []
+    if not isinstance(project_l, list):
+        project_l = []
+    return list(dict.fromkeys(global_l + project_l))
 
 
 def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     """Merge global and project configs with security rules."""
     config = NahConfig()
 
-    # classify: union (project extends global)
-    g_classify = global_cfg.get("classify", {})
-    p_classify = project_cfg.get("classify", {})
-    if not isinstance(g_classify, dict):
-        g_classify = {}
-    if not isinstance(p_classify, dict):
-        p_classify = {}
-    merged_classify: dict[str, list[str]] = {}
-    all_keys = set(g_classify) | set(p_classify)
-    for key in all_keys:
-        g_list = g_classify.get(key, [])
-        p_list = p_classify.get(key, [])
-        if not isinstance(g_list, list):
-            g_list = []
-        if not isinstance(p_list, list):
-            p_list = []
-        merged_classify[key] = list(dict.fromkeys(g_list + p_list))  # dedupe, preserve order
-    config.classify = merged_classify
+    # classify: union per key
+    g_classify = _validate_dict(global_cfg.get("classify", {}))
+    p_classify = _validate_dict(project_cfg.get("classify", {}))
+    for key in set(g_classify) | set(p_classify):
+        config.classify[key] = _merge_list_union(g_classify.get(key, []), p_classify.get(key, []))
 
-    # actions: project overrides, tighten only
-    g_actions = global_cfg.get("actions", {})
-    p_actions = project_cfg.get("actions", {})
-    if not isinstance(g_actions, dict):
-        g_actions = {}
-    if not isinstance(p_actions, dict):
-        p_actions = {}
-    merged_actions = dict(g_actions)
-    for key, val in p_actions.items():
-        if key in merged_actions:
-            # Tighten only: project can only make stricter
-            if _STRICTNESS.get(val, 2) >= _STRICTNESS.get(merged_actions[key], 2):
-                merged_actions[key] = val
-        else:
-            merged_actions[key] = val
-    config.actions = merged_actions
+    # actions: tighten only
+    config.actions = _merge_dict_tighten(
+        _validate_dict(global_cfg.get("actions", {})),
+        _validate_dict(project_cfg.get("actions", {})),
+    )
 
     # sensitive_paths_default: use project if stricter
     g_default = global_cfg.get("sensitive_paths_default", "ask")
@@ -114,21 +118,11 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     else:
         config.sensitive_paths_default = g_default if g_default in _STRICTNESS else "ask"
 
-    # sensitive_paths: union, tighten only per path
-    g_paths = global_cfg.get("sensitive_paths", {})
-    p_paths = project_cfg.get("sensitive_paths", {})
-    if not isinstance(g_paths, dict):
-        g_paths = {}
-    if not isinstance(p_paths, dict):
-        p_paths = {}
-    merged_paths = dict(g_paths)
-    for path, policy in p_paths.items():
-        if path in merged_paths:
-            if _STRICTNESS.get(policy, 2) >= _STRICTNESS.get(merged_paths[path], 2):
-                merged_paths[path] = policy
-        else:
-            merged_paths[path] = policy
-    config.sensitive_paths = merged_paths
+    # sensitive_paths: tighten only
+    config.sensitive_paths = _merge_dict_tighten(
+        _validate_dict(global_cfg.get("sensitive_paths", {})),
+        _validate_dict(project_cfg.get("sensitive_paths", {})),
+    )
 
     # allow_paths: global config ONLY — project .nah.yaml silently ignored
     g_allow = global_cfg.get("allow_paths", {})
@@ -136,13 +130,10 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
         config.allow_paths = {k: v for k, v in g_allow.items() if isinstance(v, list)}
 
     # known_registries: union
-    g_reg = global_cfg.get("known_registries", [])
-    p_reg = project_cfg.get("known_registries", [])
-    if not isinstance(g_reg, list):
-        g_reg = []
-    if not isinstance(p_reg, list):
-        p_reg = []
-    config.known_registries = list(dict.fromkeys(g_reg + p_reg))
+    config.known_registries = _merge_list_union(
+        global_cfg.get("known_registries", []),
+        project_cfg.get("known_registries", []),
+    )
 
     return config
 
@@ -156,14 +147,15 @@ def is_path_allowed(sensitive_path: str, project_root: str | None) -> bool:
     if not cfg.allow_paths:
         return False
 
-    real_root = os.path.realpath(project_root)
-    real_path = os.path.realpath(os.path.expanduser(sensitive_path))
+    from nah.paths import resolve_path  # lazy import to avoid circular
+    real_root = resolve_path(project_root)
+    real_path = resolve_path(sensitive_path)
 
     for pattern, roots in cfg.allow_paths.items():
-        resolved_pattern = os.path.realpath(os.path.expanduser(pattern))
+        resolved_pattern = resolve_path(pattern)
         if real_path == resolved_pattern or real_path.startswith(resolved_pattern + os.sep):
             for root in roots:
-                resolved_root = os.path.realpath(os.path.expanduser(root))
+                resolved_root = resolve_path(root)
                 if real_root == resolved_root:
                     return True
     return False

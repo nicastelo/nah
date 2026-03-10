@@ -3,7 +3,7 @@
 import os
 import urllib.parse
 
-from nah import paths
+from nah import paths, taxonomy
 
 # Known safe registries / hosts for network context.
 _KNOWN_HOSTS: set[str] = {
@@ -31,31 +31,25 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     Returns (decision, reason).
     """
     if not target_path:
-        return "allow", "no target path"
+        return taxonomy.ALLOW, "no target path"
 
     resolved = paths.resolve_path(target_path)
 
-    # Hook self-protection
-    if paths.is_hook_path(resolved):
-        return "ask", f"targets hook directory: {paths.friendly_path(resolved)}"
-
-    # Sensitive path
-    matched, pattern, policy = paths.is_sensitive(resolved)
-    if matched:
-        if policy == "block":
-            return "block", f"targets sensitive path: {pattern}"
-        return "ask", f"targets sensitive path: {pattern}"
+    # Core path check (hook + sensitive)
+    basic = paths.check_path_basic(resolved)
+    if basic:
+        return basic
 
     # Project root check
     project_root = paths.get_project_root()
     if project_root is None:
-        return "ask", f"outside project (no git root): {paths.friendly_path(resolved)}"
+        return taxonomy.ASK, f"outside project (no git root): {paths.friendly_path(resolved)}"
 
     real_root = os.path.realpath(project_root)
     if resolved == real_root or resolved.startswith(real_root + os.sep):
-        return "allow", f"inside project: {paths.friendly_path(resolved)}"
+        return taxonomy.ALLOW, f"inside project: {paths.friendly_path(resolved)}"
 
-    return "ask", f"outside project: {paths.friendly_path(resolved)}"
+    return taxonomy.ASK, f"outside project: {paths.friendly_path(resolved)}"
 
 
 def resolve_network_context(tokens: list[str]) -> tuple[str, str]:
@@ -65,26 +59,26 @@ def resolve_network_context(tokens: list[str]) -> tuple[str, str]:
     """
     host = extract_host(tokens)
     if host is None:
-        return "ask", "unknown host"
+        return taxonomy.ASK, "unknown host"
 
     # Strip port if present
     host_no_port = host.split(":")[0] if ":" in host else host
 
     # Localhost
     if host_no_port in _LOCALHOST:
-        return "allow", f"localhost: {host}"
+        return taxonomy.ALLOW, f"localhost: {host}"
 
     # Known registries
     if host_no_port in _KNOWN_HOSTS:
-        return "allow", f"known host: {host_no_port}"
+        return taxonomy.ALLOW, f"known host: {host_no_port}"
 
     # User-configured known registries
     from nah.config import get_config  # lazy import to avoid circular
     cfg = get_config()
     if host_no_port in cfg.known_registries:
-        return "allow", f"known host (config): {host_no_port}"
+        return taxonomy.ALLOW, f"known host (config): {host_no_port}"
 
-    return "ask", f"unknown host: {host_no_port}"
+    return taxonomy.ASK, f"unknown host: {host_no_port}"
 
 
 def extract_host(tokens: list[str]) -> str | None:
@@ -101,9 +95,9 @@ def extract_host(tokens: list[str]) -> str | None:
     if cmd in ("curl", "wget"):
         return _extract_url_host(args)
     if cmd in ("ssh", "scp", "sftp"):
-        return _extract_ssh_host(args)
+        return _extract_positional_host(args, {"-p", "-i", "-l", "-o", "-F", "-J", "-P"})
     if cmd in ("nc", "ncat", "telnet"):
-        return _extract_nc_host(args)
+        return _extract_positional_host(args, {"-p", "-w", "-s"})
 
     # Fallback: try URL extraction
     return _extract_url_host(args)
@@ -128,38 +122,20 @@ def _extract_url_host(args: list[str]) -> str | None:
     return None
 
 
-def _extract_ssh_host(args: list[str]) -> str | None:
-    """Extract host from ssh/scp args (user@host or positional host)."""
+def _extract_positional_host(args: list[str], valued_flags: set[str]) -> str | None:
+    """Extract host from positional args, skipping valued flags. Handles user@host."""
     skip_next = False
     for arg in args:
         if skip_next:
             skip_next = False
             continue
         if arg.startswith("-"):
-            # Flags that take a value
-            if arg in ("-p", "-i", "-l", "-o", "-F", "-J", "-P"):
+            if arg in valued_flags:
                 skip_next = True
             continue
         # user@host
         if "@" in arg:
             host_part = arg.split("@", 1)[1]
-            # scp: user@host:path
             return host_part.split(":")[0] if ":" in host_part else host_part
-        # Bare host
-        return arg
-    return None
-
-
-def _extract_nc_host(args: list[str]) -> str | None:
-    """Extract host from nc/telnet — first non-flag argument."""
-    skip_next = False
-    for arg in args:
-        if skip_next:
-            skip_next = False
-            continue
-        if arg.startswith("-"):
-            if arg in ("-p", "-w", "-s"):
-                skip_next = True
-            continue
         return arg
     return None

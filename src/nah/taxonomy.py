@@ -14,6 +14,15 @@ LANG_EXEC = "lang_exec"
 OBFUSCATED = "obfuscated"
 UNKNOWN = "unknown"
 
+# Decision constants
+ALLOW = "allow"
+ASK = "ask"
+BLOCK = "block"
+CONTEXT = "context"
+
+# Strictness ordering — higher = more restrictive. Used for tighten-only merges.
+STRICTNESS = {ALLOW: 0, CONTEXT: 1, ASK: 2, BLOCK: 3}
+
 # (prefix_tuple, action_type) — sorted longest-first at module load.
 # Prefix matching: iterate sorted list, first match wins.
 _CLASSIFY_TABLE: list[tuple[tuple[str, ...], str]] = [
@@ -133,18 +142,18 @@ _CLASSIFY_TABLE.sort(key=lambda entry: len(entry[0]), reverse=True)
 
 # Default policies per action type.
 _POLICIES: dict[str, str] = {
-    FILESYSTEM_READ: "allow",
-    FILESYSTEM_WRITE: "context",
-    FILESYSTEM_DELETE: "context",
-    GIT_SAFE: "allow",
-    GIT_WRITE: "allow",
-    GIT_HISTORY_REWRITE: "ask",
-    NETWORK_OUTBOUND: "context",
-    PACKAGE_INSTALL: "allow",
-    PACKAGE_RUN: "allow",
-    LANG_EXEC: "ask",
-    OBFUSCATED: "block",
-    UNKNOWN: "ask",
+    FILESYSTEM_READ: ALLOW,
+    FILESYSTEM_WRITE: CONTEXT,
+    FILESYSTEM_DELETE: CONTEXT,
+    GIT_SAFE: ALLOW,
+    GIT_WRITE: ALLOW,
+    GIT_HISTORY_REWRITE: ASK,
+    NETWORK_OUTBOUND: CONTEXT,
+    PACKAGE_INSTALL: ALLOW,
+    PACKAGE_RUN: ALLOW,
+    LANG_EXEC: ASK,
+    OBFUSCATED: BLOCK,
+    UNKNOWN: ASK,
 }
 
 # Shell wrappers that need unwrapping.
@@ -206,7 +215,7 @@ def get_policy(action_type: str, user_actions: dict[str, str] | None = None) -> 
     """Return policy for an action type. Checks user overrides first, then built-in."""
     if user_actions and action_type in user_actions:
         return user_actions[action_type]
-    return _POLICIES.get(action_type, "ask")
+    return _POLICIES.get(action_type, ASK)
 
 
 def is_shell_wrapper(tokens: list[str]) -> tuple[bool, str | None]:

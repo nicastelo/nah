@@ -4,44 +4,40 @@ import json
 import os
 import sys
 
-from nah import paths
+from nah import paths, taxonomy
 from nah.bash import classify_command
 from nah.content import scan_content, format_content_message, is_credential_search
 
 
+def _check_write_content(tool_name: str, tool_input: dict, content_field: str) -> dict:
+    """Shared handler for Write/Edit: path check + content inspection."""
+    path_check = paths.check_path(tool_name, tool_input.get("file_path", ""))
+    if path_check:
+        return path_check
+    content = tool_input.get(content_field, "")
+    matches = scan_content(content)
+    if matches:
+        return {"decision": taxonomy.ASK, "message": format_content_message(tool_name, matches)}
+    return {"decision": taxonomy.ALLOW}
+
+
 def handle_read(tool_input: dict) -> dict:
-    return paths.check_path("Read", tool_input.get("file_path", "")) or {"decision": "allow"}
+    return paths.check_path("Read", tool_input.get("file_path", "")) or {"decision": taxonomy.ALLOW}
 
 
 def handle_write(tool_input: dict) -> dict:
-    path_check = paths.check_path("Write", tool_input.get("file_path", ""))
-    if path_check:
-        return path_check
-    # Content inspection
-    content = tool_input.get("content", "")
-    matches = scan_content(content)
-    if matches:
-        return {"decision": "ask", "message": format_content_message("Write", matches)}
-    return {"decision": "allow"}
+    return _check_write_content("Write", tool_input, "content")
 
 
 def handle_edit(tool_input: dict) -> dict:
-    path_check = paths.check_path("Edit", tool_input.get("file_path", ""))
-    if path_check:
-        return path_check
-    # Content inspection
-    new_string = tool_input.get("new_string", "")
-    matches = scan_content(new_string)
-    if matches:
-        return {"decision": "ask", "message": format_content_message("Edit", matches)}
-    return {"decision": "allow"}
+    return _check_write_content("Edit", tool_input, "new_string")
 
 
 def handle_glob(tool_input: dict) -> dict:
     raw_path = tool_input.get("path", "")
     if not raw_path:
-        return {"decision": "allow"}  # defaults to cwd
-    return paths.check_path("Glob", raw_path) or {"decision": "allow"}
+        return {"decision": taxonomy.ALLOW}  # defaults to cwd
+    return paths.check_path("Glob", raw_path) or {"decision": taxonomy.ALLOW}
 
 
 def handle_grep(tool_input: dict) -> dict:
@@ -62,41 +58,41 @@ def handle_grep(tool_input: dict) -> dict:
             real_root = paths.resolve_path(project_root)
             if resolved_path and not (resolved_path == real_root or resolved_path.startswith(real_root + os.sep)):
                 return {
-                    "decision": "ask",
+                    "decision": taxonomy.ASK,
                     "message": "Grep: credential search pattern outside project root",
                 }
         else:
             # No project root — any credential search is suspicious
             if raw_path:
                 return {
-                    "decision": "ask",
+                    "decision": taxonomy.ASK,
                     "message": "Grep: credential search pattern (no project root)",
                 }
 
-    return {"decision": "allow"}
+    return {"decision": taxonomy.ALLOW}
 
 
 def handle_bash(tool_input: dict) -> dict:
     """Classify bash commands via the full structural pipeline."""
     command = tool_input.get("command", "")
     if not command:
-        return {"decision": "allow"}
+        return {"decision": taxonomy.ALLOW}
 
     result = classify_command(command)
 
-    if result.final_decision == "block":
+    if result.final_decision == taxonomy.BLOCK:
         reason = result.reason
         if result.composition_rule:
             reason = f"[{result.composition_rule}] {reason}"
-        return {"decision": "block", "reason": f"Bash: {reason}"}
+        return {"decision": taxonomy.BLOCK, "reason": f"Bash: {reason}"}
 
-    if result.final_decision == "ask":
+    if result.final_decision == taxonomy.ASK:
         reason = result.reason
         if result.composition_rule:
             reason = f"[{result.composition_rule}] {reason}"
-        return {"decision": "ask", "message": f"Bash: {reason}"}
+        return {"decision": taxonomy.ASK, "message": f"Bash: {reason}"}
 
-    return {"decision": "allow"}
+    return {"decision": taxonomy.ALLOW}
 
 
 HANDLERS = {
@@ -117,7 +113,7 @@ def main():
 
         handler = HANDLERS.get(tool_name)
         if handler is None:
-            decision = {"decision": "allow"}
+            decision = {"decision": taxonomy.ALLOW}
         else:
             decision = handler(tool_input)
 
@@ -127,7 +123,7 @@ def main():
     except Exception as e:
         sys.stderr.write(f"nah: error: {e}\n")
         try:
-            json.dump({"decision": "allow"}, sys.stdout)
+            json.dump({"decision": "ask", "message": "nah: internal error, requesting confirmation"}, sys.stdout)
             sys.stdout.write("\n")
             sys.stdout.flush()
         except BrokenPipeError:

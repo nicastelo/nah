@@ -1,6 +1,7 @@
 """Bash command classifier — tokenize, decompose, classify, compose."""
 
 import shlex
+import sys
 from dataclasses import dataclass, field
 
 from nah import context, paths, taxonomy
@@ -20,8 +21,8 @@ class Stage:
 class StageResult:
     tokens: list[str]
     action_type: str = taxonomy.UNKNOWN
-    policy: str = "ask"
-    decision: str = "ask"
+    default_policy: str = taxonomy.ASK
+    decision: str = taxonomy.ASK
     reason: str = ""
 
 
@@ -29,7 +30,7 @@ class StageResult:
 class ClassifyResult:
     command: str
     stages: list[StageResult] = field(default_factory=list)
-    final_decision: str = "ask"
+    final_decision: str = taxonomy.ASK
     reason: str = ""
     composition_rule: str = ""
 
@@ -39,7 +40,7 @@ def classify_command(command: str) -> ClassifyResult:
     result = ClassifyResult(command=command)
 
     if not command.strip():
-        result.final_decision = "allow"
+        result.final_decision = taxonomy.ALLOW
         result.reason = "empty command"
         return result
 
@@ -47,12 +48,12 @@ def classify_command(command: str) -> ClassifyResult:
     try:
         tokens = shlex.split(command)
     except ValueError:
-        result.final_decision = "ask"
+        result.final_decision = taxonomy.ASK
         result.reason = "unparseable command (shlex error)"
         return result
 
     if not tokens:
-        result.final_decision = "allow"
+        result.final_decision = taxonomy.ALLOW
         result.reason = "empty command"
         return result
 
@@ -66,8 +67,8 @@ def classify_command(command: str) -> ClassifyResult:
             merged_table = taxonomy.build_merged_classify_table(cfg.classify)
         if cfg.actions:
             user_actions = cfg.actions
-    except Exception:
-        pass  # config unavailable — use defaults
+    except Exception as e:
+        sys.stderr.write(f"nah: config load error: {e}\n")
 
     # Decompose into stages
     stages = _decompose(tokens)
@@ -173,93 +174,109 @@ def _classify_stage(
     sr = StageResult(tokens=tokens)
 
     if not tokens:
-        sr.action_type = taxonomy.UNKNOWN
-        sr.policy = "ask"
-        sr.decision = "ask"
         sr.reason = "empty stage"
         return sr
 
     # Shell unwrapping
-    if depth < _MAX_UNWRAP_DEPTH:
-        is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
-        if is_wrapper and inner is not None:
-            # Check for $() or backticks in eval — obfuscated
-            if tokens[0] == "eval" and ("$(" in inner or "`" in inner):
-                sr.action_type = taxonomy.OBFUSCATED
-                sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
-                sr.decision = sr.policy
-                sr.reason = "eval with command substitution"
-                return sr
-            try:
-                inner_tokens = shlex.split(inner)
-            except ValueError:
-                sr.action_type = taxonomy.OBFUSCATED
-                sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
-                sr.decision = sr.policy
-                sr.reason = "unparseable inner command"
-                return sr
-            if inner_tokens:
-                inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
-                return _classify_stage(inner_stage, depth + 1, merged_table, user_actions)
-
-    if depth >= _MAX_UNWRAP_DEPTH:
-        sr.action_type = taxonomy.OBFUSCATED
-        sr.policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
-        sr.decision = sr.policy
-        sr.reason = "excessive shell nesting"
-        return sr
+    unwrapped = _unwrap_shell(stage, depth, merged_table, user_actions)
+    if unwrapped is not None:
+        return unwrapped
 
     # Classify tokens
     sr.action_type = taxonomy.classify_tokens(tokens, merged_table)
-    sr.policy = taxonomy.get_policy(sr.action_type, user_actions)
+    sr.default_policy = taxonomy.get_policy(sr.action_type, user_actions)
 
     # Handle redirect target — treat as filesystem_write for the target path
     if stage.redirect_target:
         redir_decision, redir_reason = _check_redirect(stage.redirect_target)
-        if redir_decision in ("block", "ask"):
+        if redir_decision in (taxonomy.BLOCK, taxonomy.ASK):
             sr.decision = redir_decision
             sr.reason = f"redirect target: {redir_reason}"
             return sr
 
-    # Apply policy
-    if sr.policy == "allow":
-        sr.decision = "allow"
-        sr.reason = f"{sr.action_type} → allow"
-    elif sr.policy == "block":
-        sr.decision = "block"
-        sr.reason = f"{sr.action_type} → block"
-    elif sr.policy == "ask":
-        sr.decision = "ask"
-        sr.reason = f"{sr.action_type} → ask"
-    elif sr.policy == "context":
-        sr.decision, sr.reason = _resolve_context(sr.action_type, tokens)
-    else:
-        sr.decision = "ask"
-        sr.reason = f"unknown policy: {sr.policy}"
+    # Apply policy → decision
+    _apply_policy(sr)
 
     # Path extraction + checking (regardless of policy)
     path_decision, path_reason = _check_extracted_paths(tokens)
-    if path_decision == "block" or (path_decision == "ask" and sr.decision == "allow"):
+    if path_decision == taxonomy.BLOCK or (path_decision == taxonomy.ASK and sr.decision == taxonomy.ALLOW):
         sr.decision = path_decision
         sr.reason = path_reason
 
     return sr
 
 
+def _unwrap_shell(
+    stage: Stage,
+    depth: int,
+    merged_table: list | None,
+    user_actions: dict[str, str] | None,
+) -> StageResult | None:
+    """Try shell unwrapping. Returns StageResult if handled, None if not a wrapper."""
+    tokens = stage.tokens
+
+    if depth >= _MAX_UNWRAP_DEPTH:
+        sr = StageResult(tokens=tokens)
+        sr.action_type = taxonomy.OBFUSCATED
+        sr.default_policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
+        sr.decision = sr.default_policy
+        sr.reason = "excessive shell nesting"
+        return sr
+
+    is_wrapper, inner = taxonomy.is_shell_wrapper(tokens)
+    if not is_wrapper or inner is None:
+        return None
+
+    # Check for $() or backticks in eval — obfuscated
+    if tokens[0] == "eval" and ("$(" in inner or "`" in inner):
+        sr = StageResult(tokens=tokens)
+        sr.action_type = taxonomy.OBFUSCATED
+        sr.default_policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
+        sr.decision = sr.default_policy
+        sr.reason = "eval with command substitution"
+        return sr
+
+    try:
+        inner_tokens = shlex.split(inner)
+    except ValueError:
+        sr = StageResult(tokens=tokens)
+        sr.action_type = taxonomy.OBFUSCATED
+        sr.default_policy = taxonomy.get_policy(taxonomy.OBFUSCATED, user_actions)
+        sr.decision = sr.default_policy
+        sr.reason = "unparseable inner command"
+        return sr
+
+    if inner_tokens:
+        inner_stage = Stage(tokens=inner_tokens, operator=stage.operator)
+        return _classify_stage(inner_stage, depth + 1, merged_table, user_actions)
+
+    return None
+
+
+def _apply_policy(sr: StageResult) -> None:
+    """Map default_policy to decision + reason. Mutates sr in place."""
+    if sr.default_policy in (taxonomy.ALLOW, taxonomy.BLOCK, taxonomy.ASK):
+        sr.decision = sr.default_policy
+        sr.reason = f"{sr.action_type} → {sr.default_policy}"
+    elif sr.default_policy == taxonomy.CONTEXT:
+        sr.decision, sr.reason = _resolve_context(sr.action_type, sr.tokens)
+    else:
+        sr.decision = taxonomy.ASK
+        sr.reason = f"unknown policy: {sr.default_policy}"
+
+
 def _check_redirect(target: str) -> tuple[str, str]:
     """Check redirect target as a filesystem write."""
     if not target:
-        return "allow", ""
+        return taxonomy.ALLOW, ""
     resolved = paths.resolve_path(target)
 
-    if paths.is_hook_path(resolved):
-        return "ask", f"redirect to hook directory: {paths.friendly_path(resolved)}"
-
-    matched, pattern, policy = paths.is_sensitive(resolved)
-    if matched:
-        if policy == "block":
-            return "block", f"redirect to sensitive path: {pattern}"
-        return "ask", f"redirect to sensitive path: {pattern}"
+    basic = paths.check_path_basic(resolved)
+    if basic:
+        decision, reason = basic
+        if decision == taxonomy.BLOCK:
+            return taxonomy.BLOCK, f"redirect to sensitive path: {reason.split(': ', 1)[-1]}"
+        return taxonomy.ASK, f"redirect to {reason}"
 
     return context.resolve_filesystem_context(target)
 
@@ -276,9 +293,9 @@ def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
 
     # No path extracted — check action type default
     if action_type in (taxonomy.FILESYSTEM_DELETE, taxonomy.FILESYSTEM_WRITE):
-        return "ask", f"{action_type}: no target path extracted"
+        return taxonomy.ASK, f"{action_type}: no target path extracted"
 
-    return "allow", f"{action_type}: no target path"
+    return taxonomy.ALLOW, f"{action_type}: no target path"
 
 
 def _extract_primary_target(tokens: list[str]) -> str:
@@ -309,23 +326,19 @@ def _check_extracted_paths(tokens: list[str]) -> tuple[str, str]:
             continue
         if "/" in tok or tok.startswith("~") or tok.startswith("."):
             resolved = paths.resolve_path(tok)
-            if paths.is_hook_path(resolved):
-                # Bash is not Write/Edit, so hook paths are ask (not block)
-                if ask_result is None:
-                    ask_result = ("ask", f"targets hook directory: {paths.friendly_path(resolved)}")
-                continue
-            matched, pattern, policy = paths.is_sensitive(resolved)
-            if matched:
-                if policy == "block":
-                    block_result = ("block", f"targets sensitive path: {pattern}")
+            basic = paths.check_path_basic(resolved)
+            if basic:
+                decision, reason = basic
+                if decision == taxonomy.BLOCK:
+                    block_result = (taxonomy.BLOCK, reason)
                 elif ask_result is None:
-                    ask_result = ("ask", f"targets sensitive path: {pattern}")
+                    ask_result = (taxonomy.ASK, reason)
 
     if block_result:
         return block_result
     if ask_result:
         return ask_result
-    return "allow", ""
+    return taxonomy.ALLOW, ""
 
 
 def _check_composition(stage_results: list[StageResult], stages: list[Stage]) -> tuple[str, str, str]:
@@ -343,19 +356,19 @@ def _check_composition(stage_results: list[StageResult], stages: list[Stage]) ->
 
         # sensitive_read | network → block (exfiltration)
         if _is_sensitive_read(left) and right.action_type == taxonomy.NETWORK_OUTBOUND:
-            return "block", f"data exfiltration: {right.tokens[0]} receives sensitive input", "sensitive_read | network"
+            return taxonomy.BLOCK, f"data exfiltration: {right.tokens[0]} receives sensitive input", "sensitive_read | network"
 
         # network | exec → block (remote code execution)
         if left.action_type == taxonomy.NETWORK_OUTBOUND and _is_exec_sink_stage(right):
-            return "block", f"remote code execution: {right.tokens[0]} receives network input", "network | exec"
+            return taxonomy.BLOCK, f"remote code execution: {right.tokens[0]} receives network input", "network | exec"
 
         # decode | exec → block (obfuscation)
         if taxonomy.is_decode_stage(left.tokens) and _is_exec_sink_stage(right):
-            return "block", f"obfuscated execution: {right.tokens[0]} receives decoded input", "decode | exec"
+            return taxonomy.BLOCK, f"obfuscated execution: {right.tokens[0]} receives decoded input", "decode | exec"
 
         # any_read | exec → ask
         if left.action_type == taxonomy.FILESYSTEM_READ and _is_exec_sink_stage(right):
-            return "ask", f"local code execution: {right.tokens[0]} receives file input", "read | exec"
+            return taxonomy.ASK, f"local code execution: {right.tokens[0]} receives file input", "read | exec"
 
     return "", "", ""
 
@@ -384,15 +397,13 @@ def _is_exec_sink_stage(sr: StageResult) -> bool:
 def _aggregate(result: ClassifyResult) -> None:
     """Aggregate stage decisions — most restrictive wins."""
     if not result.stages:
-        result.final_decision = "allow"
+        result.final_decision = taxonomy.ALLOW
         result.reason = "no stages"
         return
 
-    # Priority: block > ask > allow
-    priority = {"block": 3, "ask": 2, "allow": 1}
     worst = result.stages[0]
     for sr in result.stages[1:]:
-        if priority.get(sr.decision, 2) > priority.get(worst.decision, 2):
+        if taxonomy.STRICTNESS.get(sr.decision, 2) > taxonomy.STRICTNESS.get(worst.decision, 2):
             worst = sr
 
     result.final_decision = worst.decision

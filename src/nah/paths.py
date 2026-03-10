@@ -2,6 +2,9 @@
 
 import os
 import subprocess
+import sys
+
+from nah import taxonomy
 
 _HOME = os.path.expanduser("~")
 _HOOKS_DIR = os.path.realpath(os.path.join(_HOME, ".claude", "hooks"))
@@ -72,6 +75,16 @@ def is_sensitive(resolved: str) -> tuple[bool, str, str]:
     return False, "", ""
 
 
+def check_path_basic(resolved: str) -> tuple[str, str] | None:
+    """Core path check: hook → sensitive. Returns (decision, reason) or None."""
+    if is_hook_path(resolved):
+        return (taxonomy.ASK, f"targets hook directory: {friendly_path(resolved)}")
+    matched, pattern, policy = is_sensitive(resolved)
+    if matched:
+        return (policy, f"targets sensitive path: {pattern}")
+    return None
+
+
 def build_merged_sensitive_paths(config_paths: dict[str, str], config_default: str) -> None:
     """Merge user sensitive_paths with hardcoded lists. Modifies _SENSITIVE_DIRS in place."""
     # User config can add new sensitive paths (not remove hardcoded ones)
@@ -97,35 +110,36 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
 
     resolved = resolve_path(raw_path)
 
-    # Hook self-protection (highest priority)
+    # Hook self-protection — Write/Edit get block (not just ask)
     if is_hook_path(resolved):
         if tool_name in hook_block_tools:
             return {
-                "decision": "block",
+                "decision": taxonomy.BLOCK,
                 "reason": f"{tool_name} targets hook directory: ~/.claude/hooks/ (self-modification blocked)",
             }
         return {
-            "decision": "ask",
+            "decision": taxonomy.ASK,
             "message": f"{tool_name} targets hook directory: ~/.claude/hooks/",
         }
 
-    # Sensitive path check
-    matched, pattern, policy = is_sensitive(resolved)
-    if matched:
+    # Core check: sensitive paths
+    basic = check_path_basic(resolved)
+    if basic:
+        decision, reason = basic
         # Check allow_paths exemption before returning
         from nah.config import is_path_allowed  # lazy import to avoid circular
         project_root = get_project_root()
         if is_path_allowed(raw_path, project_root):
             return None  # exempted
 
-        if policy == "block":
+        if decision == taxonomy.BLOCK:
             return {
-                "decision": "block",
-                "reason": f"{tool_name} targets sensitive path: {pattern}",
+                "decision": taxonomy.BLOCK,
+                "reason": f"{tool_name} {reason}",
             }
         return {
-            "decision": "ask",
-            "message": f"{tool_name} targets sensitive path: {pattern}",
+            "decision": taxonomy.ASK,
+            "message": f"{tool_name} {reason}",
         }
 
     return None
@@ -159,5 +173,5 @@ def get_project_root() -> str | None:
         if result.returncode == 0 and result.stdout.strip():
             _project_root = result.stdout.strip()
     except (subprocess.TimeoutExpired, FileNotFoundError):
-        pass
+        sys.stderr.write("nah: git not available, project root detection skipped\n")
     return _project_root
