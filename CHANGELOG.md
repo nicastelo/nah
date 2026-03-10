@@ -25,9 +25,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Sensitive path config overrides now applied — `build_merged_sensitive_paths()` wired into path checking via lazy `_ensure_sensitive_paths_merged()`, existing entries can be overridden (FD-025)
 - Ask decisions no longer shown as "hook error" — `detect_agent()` misidentified Claude Code as Kiro via `hook_event_name` payload field, triggering `sys.exit(2)` (FD-029)
-
-### Fixed
 
 - Allow decisions no longer bypass Claude Code's permission system — silent passthrough (empty stdout) lets acceptEdits and other permission modes work correctly (FD-028)
 
