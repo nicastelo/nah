@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 5 new action types: git_discard, process_signal, container_destructive, package_uninstall, sql_write (FD-015)
 - Git global flag stripping (`git -C <dir>`, `--no-pager`, etc.) for correct classification (FD-015)
 - Classification data moved to JSON data files (`src/nah/data/classify/*.json`) (FD-015)
+- Taxonomy profiles (`full`, `minimal`, `none`) — users can choose how much built-in classification to use or start from scratch (FD-032)
+- Three-table classify lookup (global → built-in → project) with supply-chain safety — project config can only fill gaps, never reclassify built-in commands (FD-032)
+- Minimal profile with 9 curated JSON files covering universally obvious commands (rm, git, curl, kill, etc.) (FD-032)
 - OpenAI and Anthropic LLM backends for ambiguous command resolution — OpenAI via Responses API, Anthropic via Messages API (FD-030)
 - BrokenPipeError-safe shim with stdout buffering and crash recovery (FD-011)
 - Debug crash log at `~/.config/nah/hook-errors.log` with 1MB rotation (FD-011)
@@ -29,6 +32,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ask decisions no longer shown as "hook error" — `detect_agent()` misidentified Claude Code as Kiro via `hook_event_name` payload field, triggering `sys.exit(2)` (FD-029)
 
 - Allow decisions no longer bypass Claude Code's permission system — silent passthrough (empty stdout) lets acceptEdits and other permission modes work correctly (FD-028)
+
+### Removed
+
+- Claude Code deny list (`permissions.deny` in settings.json) — all 82 patterns superseded by nah's taxonomy-based classification (FD-013)
 
 ### Changed
 
