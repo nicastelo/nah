@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- LLM config key renamed from `backends:` to `providers:` — old key accepted as deprecated alias for one version cycle. Log fields `llm_backend` → `llm_provider`, cascade entries `backend` → `provider` (FD-036)
 - Error default changed from `allow` to `ask` — crashes no longer silently bypass security (FD-014)
 - Hook output uses Claude Code `hookSpecificOutput` protocol with required `hookEventName` field (FD-014)
 - Extracted shared helpers: `check_path_basic()`, `_check_write_content()`, `_extract_positional_host()`, `_apply_policy()`, `_unwrap_shell()`, `_merge_dict_tighten()`, `_merge_list_union()` (FD-014)
