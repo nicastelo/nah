@@ -642,6 +642,28 @@ def main():
     log_parser.add_argument("-n", "--limit", type=int, default=50, help="Number of entries (default: 50)")
     log_parser.add_argument("--json", action="store_true", help="Output as JSON lines")
 
+    allow_parser = sub.add_parser("allow", help="Allow an action type")
+    allow_parser.add_argument("action_type", help="Action type to allow")
+    allow_parser.add_argument("--project", action="store_true", help="Write to project config")
+    deny_parser = sub.add_parser("deny", help="Deny an action type")
+    deny_parser.add_argument("action_type", help="Action type to deny")
+    deny_parser.add_argument("--project", action="store_true", help="Write to project config")
+    allow_path_parser = sub.add_parser("allow-path", help="Allow a sensitive path for the current project")
+    allow_path_parser.add_argument("path", help="Path to allow")
+    classify_parser = sub.add_parser("classify", help="Classify a command prefix as an action type")
+    classify_parser.add_argument("command_prefix", help="Command prefix to classify")
+    classify_parser.add_argument("type", help="Action type to assign")
+    classify_parser.add_argument("--project", action="store_true", help="Write to project config")
+    trust_parser = sub.add_parser("trust", help="Trust a network host")
+    trust_parser.add_argument("host", help="Hostname to trust")
+    trust_parser.add_argument("--project", action="store_true", help="Write to project config")
+    sub.add_parser("status", help="Show all custom rules")
+    forget_parser = sub.add_parser("forget", help="Remove a rule")
+    forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")
+    forget_parser.add_argument("--project", action="store_true", help="Search only project config")
+    forget_parser.add_argument("--global", dest="global_flag", action="store_true", help="Search only global config")
+    sub.add_parser("types", help="List all action types with descriptions and default policies")
+
     args = parser.parse_args()
 
     if args.command == "install":
@@ -656,6 +678,22 @@ def main():
         cmd_config(args)
     elif args.command == "log":
         cmd_log(args)
+    elif args.command == "allow":
+        cmd_allow(args)
+    elif args.command == "deny":
+        cmd_deny(args)
+    elif args.command == "allow-path":
+        cmd_allow_path(args)
+    elif args.command == "classify":
+        cmd_classify(args)
+    elif args.command == "trust":
+        cmd_trust(args)
+    elif args.command == "status":
+        cmd_status(args)
+    elif args.command == "forget":
+        cmd_forget(args)
+    elif args.command == "types":
+        cmd_types(args)
     else:
         parser.print_help()
 

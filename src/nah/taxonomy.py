@@ -65,6 +65,7 @@ def _load_policies() -> dict[str, str]:
 
 # Cached built-in tables keyed by profile name.
 _BUILTIN_TABLES: dict[str, list[tuple[tuple[str, ...], str]]] = {}
+_TYPE_DESCRIPTIONS: dict[str, str] | None = None
 _POLICIES = _load_policies()
 
 # Pre-load full profile at module level (most common path).
@@ -333,6 +334,26 @@ def _classify_git(tokens: list[str]) -> str | None:
         return GIT_WRITE if "--staged" in args else GIT_DISCARD
 
     return None
+
+
+def load_type_descriptions() -> dict[str, str]:
+    """Load action type descriptions from types.json. Cached at module level."""
+    global _TYPE_DESCRIPTIONS
+    if _TYPE_DESCRIPTIONS is not None:
+        return _TYPE_DESCRIPTIONS
+    with open(_DATA_DIR / "types.json") as f:
+        _TYPE_DESCRIPTIONS = json.load(f)
+    return _TYPE_DESCRIPTIONS
+
+
+def validate_action_type(name: str) -> tuple[bool, list[str]]:
+    """Check if name is a valid action type. Returns (valid, close_matches)."""
+    import difflib
+    all_types = list(load_type_descriptions().keys())
+    if name in all_types:
+        return True, []
+    matches = difflib.get_close_matches(name, all_types, n=3, cutoff=0.5)
+    return False, matches
 
 
 def get_policy(action_type: str, user_actions: dict[str, str] | None = None) -> str:

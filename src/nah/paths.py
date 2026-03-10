@@ -173,6 +173,7 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
         return {
             "decision": taxonomy.ASK,
             "message": f"{tool_name} {reason}",
+            "_hint": f"To always allow: nah allow-path {friendly_path(resolved)}",
         }
 
     return None
