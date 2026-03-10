@@ -131,6 +131,16 @@ def classify_tokens(
     if action is not None:
         return action
 
+    # Special case: sed
+    action = _classify_sed(tokens)
+    if action is not None:
+        return action
+
+    # Special case: tar
+    action = _classify_tar(tokens)
+    if action is not None:
+        return action
+
     # Strip git global flags so `git -C /dir rm` classifies as `git rm`.
     if tokens[0] == "git":
         tokens = _strip_git_global_flags(tokens)
@@ -184,6 +194,61 @@ def _classify_find(tokens: list[str]) -> str | None:
         if tok in ("-delete", "-exec", "-execdir", "-ok"):
             return FILESYSTEM_DELETE
     return FILESYSTEM_READ
+
+
+def _classify_sed(tokens: list[str]) -> str | None:
+    """Flag-dependent: sed -i/-I → filesystem_write; else → filesystem_read."""
+    if not tokens or tokens[0] != "sed":
+        return None
+    for tok in tokens[1:]:
+        # -i/-I or -i.bak/-I.bak (GNU lowercase, BSD uppercase)
+        if tok == "-i" or tok.startswith("-i") or tok == "-I" or tok.startswith("-I"):
+            return FILESYSTEM_WRITE
+        # --in-place or --in-place=.bak (GNU long form)
+        if tok.startswith("--in-place"):
+            return FILESYSTEM_WRITE
+        # Combined short flags: -ni, -nI, -ein, etc.
+        if tok.startswith("-") and not tok.startswith("--") and ("i" in tok or "I" in tok):
+            return FILESYSTEM_WRITE
+    return FILESYSTEM_READ
+
+
+def _classify_tar(tokens: list[str]) -> str | None:
+    """Flag-dependent: tar mode detection. Write takes precedence. Default: write."""
+    if not tokens or tokens[0] != "tar":
+        return None
+    found_read = False
+    found_write = False
+    args = tokens[1:]
+    if not args:
+        return FILESYSTEM_WRITE  # Conservative default
+    # Check if first arg is a bare mode string (no leading dash): tf, czf, xf
+    first = args[0]
+    if first and not first.startswith("-"):
+        if any(c in first for c in "cxru"):
+            found_write = True
+        elif "t" in first:
+            found_read = True
+    # Check all flag arguments
+    for tok in args:
+        if tok.startswith("-") and len(tok) > 1 and tok[1] != "-":
+            # Short flags: -tf, -czf, -xf, etc.
+            letters = tok[1:]
+            if "t" in letters:
+                found_read = True
+            if any(c in letters for c in "cxru"):
+                found_write = True
+        elif tok.startswith("--"):
+            if tok == "--list":
+                found_read = True
+            if tok in ("--create", "--extract", "--append", "--update",
+                       "--get", "--delete"):
+                found_write = True
+    if found_write:
+        return FILESYSTEM_WRITE
+    if found_read:
+        return FILESYSTEM_READ
+    return FILESYSTEM_WRITE  # Conservative default
 
 
 def _classify_git(tokens: list[str]) -> str | None:

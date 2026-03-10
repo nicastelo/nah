@@ -364,3 +364,45 @@ class TestFD017Regressions:
         r = classify_command("git config user.name")
         assert r.final_decision == "allow"
         assert r.stages[0].action_type == "git_safe"
+
+
+class TestFD018Regressions:
+    """FD-018: Integration tests for sed/tar classifiers and new builtins."""
+
+    def test_sed_i_is_write(self, project_root):
+        r = classify_command("sed -i 's/a/b/' file.txt")
+        assert r.stages[0].action_type == "filesystem_write"
+
+    def test_sed_bare_is_read(self, project_root):
+        r = classify_command("sed 's/a/b/' file.txt")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_tar_tf_is_read(self, project_root):
+        r = classify_command("tar tf archive.tar")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_tar_xf_is_write(self, project_root):
+        r = classify_command("tar xf archive.tar")
+        assert r.stages[0].action_type == "filesystem_write"
+
+    def test_cd_allow(self, project_root):
+        r = classify_command("cd /tmp")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_uname_allow(self, project_root):
+        r = classify_command("uname -a")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_sleep_allow(self, project_root):
+        r = classify_command("sleep 5")
+        assert r.final_decision == "allow"
+        assert r.stages[0].action_type == "filesystem_read"
+
+    def test_env_still_unknown(self, project_root):
+        """env must remain unknown (exfiltration risk)."""
+        r = classify_command("env")
+        assert r.stages[0].action_type == "unknown"
