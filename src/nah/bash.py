@@ -274,9 +274,9 @@ def _check_redirect(target: str) -> tuple[str, str]:
     basic = paths.check_path_basic(resolved)
     if basic:
         decision, reason = basic
-        if decision == taxonomy.BLOCK:
-            return taxonomy.BLOCK, f"redirect to sensitive path: {reason.split(': ', 1)[-1]}"
-        return taxonomy.ASK, f"redirect to {reason}"
+        # reason is "targets X: detail" — rewrite as "redirect to X: detail"
+        display = reason.replace("targets ", "", 1) if reason.startswith("targets ") else reason
+        return decision, f"redirect to {display}"
 
     return context.resolve_filesystem_context(target)
 
