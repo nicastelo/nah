@@ -50,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - Claude Code deny list (`permissions.deny` in settings.json) — all 82 patterns superseded by nah's taxonomy-based classification (FD-013)
+- Internal docs scrubbed from git history — article drafts, competitive analysis, positioning, design decisions (FD-002)
 
 ### Changed
 
