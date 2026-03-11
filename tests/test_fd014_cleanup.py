@@ -260,6 +260,41 @@ class TestMergeHelpers:
         assert result["a"] == "allow"
         assert result["b"] == "block"
 
+    def test_merge_dict_tighten_new_key_validated_against_defaults(self):
+        """FD-048: new keys compared against built-in defaults, not accepted blindly."""
+        defaults = {"sql_write": "ask", "network_outbound": "context"}
+        # allow < ask → rejected
+        result = _merge_dict_tighten({}, {"sql_write": "allow"}, defaults=defaults)
+        assert "sql_write" not in result
+        # block > ask → accepted
+        result = _merge_dict_tighten({}, {"sql_write": "block"}, defaults=defaults)
+        assert result["sql_write"] == "block"
+        # allow < context → rejected
+        result = _merge_dict_tighten({}, {"network_outbound": "allow"}, defaults=defaults)
+        assert "network_outbound" not in result
+        # ask > context → accepted
+        result = _merge_dict_tighten({}, {"network_outbound": "ask"}, defaults=defaults)
+        assert result["network_outbound"] == "ask"
+
+    def test_merge_dict_tighten_unknown_key_defaults_to_ask(self):
+        """FD-048: keys not in defaults dict fall back to 'ask'."""
+        defaults = {"known": "allow"}
+        # unknown key, allow < ask → rejected
+        result = _merge_dict_tighten({}, {"fake_type": "allow"}, defaults=defaults)
+        assert "fake_type" not in result
+        # unknown key, block > ask → accepted
+        result = _merge_dict_tighten({}, {"fake_type": "block"}, defaults=defaults)
+        assert result["fake_type"] == "block"
+
+    def test_merge_dict_tighten_no_defaults_falls_back_to_ask(self):
+        """Without defaults param, new keys still compared against 'ask'."""
+        # allow < ask → rejected
+        result = _merge_dict_tighten({}, {"x": "allow"})
+        assert "x" not in result
+        # ask >= ask → accepted
+        result = _merge_dict_tighten({}, {"x": "ask"})
+        assert result["x"] == "ask"
+
     def test_merge_list_union_dedupes(self):
         result = _merge_list_union(["a", "b"], ["b", "c"])
         assert result == ["a", "b", "c"]

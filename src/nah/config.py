@@ -4,7 +4,7 @@ import os
 import sys
 from dataclasses import dataclass, field
 
-from nah.taxonomy import PROFILES as _PROFILES, STRICTNESS as _STRICTNESS
+from nah.taxonomy import POLICIES as _POLICIES, PROFILES as _PROFILES, STRICTNESS as _STRICTNESS
 
 _CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah")
 _GLOBAL_CONFIG = os.path.join(_CONFIG_DIR, "config.yaml")
@@ -23,7 +23,8 @@ class NahConfig:
     known_registries: list[str] = field(default_factory=list)
     llm: dict = field(default_factory=dict)
     llm_max_decision: str = "ask"  # default: LLM can't escalate past ask
-    ask_fallback: str = "deny"
+    llm_eligible: str | list = "default"
+    db_targets: list[dict] = field(default_factory=list)
     log: dict = field(default_factory=dict)
 
 
@@ -79,7 +80,7 @@ def _validate_dict(val) -> dict:
     return val if isinstance(val, dict) else {}
 
 
-def _merge_dict_tighten(global_d: dict, project_d: dict) -> dict:
+def _merge_dict_tighten(global_d: dict, project_d: dict, defaults: dict | None = None) -> dict:
     """Merge two dicts — project can only tighten (stricter policy wins)."""
     merged = dict(global_d)
     for key, val in project_d.items():
@@ -87,7 +88,10 @@ def _merge_dict_tighten(global_d: dict, project_d: dict) -> dict:
             if _STRICTNESS.get(val, 2) >= _STRICTNESS.get(merged[key], 2):
                 merged[key] = val
         else:
-            merged[key] = val
+            # New key: only accept if at least as strict as the built-in default
+            base = defaults.get(key, "ask") if defaults else "ask"
+            if _STRICTNESS.get(val, 2) >= _STRICTNESS.get(base, 2):
+                merged[key] = val
     return merged
 
 
@@ -115,10 +119,11 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     config.classify_global = _validate_dict(global_cfg.get("classify", {}))
     config.classify_project = _validate_dict(project_cfg.get("classify", {}))
 
-    # actions: tighten only
+    # actions: tighten only (compare new keys against built-in defaults)
     config.actions = _merge_dict_tighten(
         _validate_dict(global_cfg.get("actions", {})),
         _validate_dict(project_cfg.get("actions", {})),
+        defaults=_POLICIES,
     )
 
     # sensitive_paths_default: use project if stricter
@@ -154,9 +159,19 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     if raw_max and raw_max in _STRICTNESS:
         config.llm_max_decision = raw_max
 
-    # ask_fallback: global config ONLY
-    raw_fallback = global_cfg.get("ask_fallback", "deny")
-    config.ask_fallback = raw_fallback if raw_fallback in ("deny", "allow") else "deny"
+    # llm.eligible: which ask categories are LLM-eligible (global only)
+    raw_eligible = config.llm.get("eligible", "default")
+    if raw_eligible == "all":
+        config.llm_eligible = "all"
+    elif isinstance(raw_eligible, list):
+        config.llm_eligible = [str(v) for v in raw_eligible]
+    else:
+        config.llm_eligible = "default"
+
+    # db_targets: global config ONLY — project .nah.yaml silently ignored
+    g_targets = global_cfg.get("db_targets", [])
+    if isinstance(g_targets, list):
+        config.db_targets = [t for t in g_targets if isinstance(t, dict)]
 
     # log: global config ONLY — project .nah.yaml silently ignored
     config.log = _validate_dict(global_cfg.get("log", {}))
