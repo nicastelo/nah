@@ -8,10 +8,6 @@ Context-aware safety guard for Claude Code. Guards all tools (Bash, Read, Write,
 
 - `src/nah/` — Python package (pip-installable, CLI entry point: `nah`)
 - `docs/PLAN.md` — Full technical plan (architecture, tool handlers, build phases)
-- `docs/DECISIONS.md` — Design decisions log
-- `docs/LANDSCAPE.md` — Competitive landscape research
-- `docs/POSITIONING.md` — Product positioning and differentiation
-- `docs/references/` — Blog article drafts that informed the design
 - `docs/features/` — Feature design tracking (FD system)
 
 ## Conventions
