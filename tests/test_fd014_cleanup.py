@@ -262,13 +262,13 @@ class TestMergeHelpers:
 
     def test_merge_dict_tighten_new_key_validated_against_defaults(self):
         """FD-048: new keys compared against built-in defaults, not accepted blindly."""
-        defaults = {"sql_write": "ask", "network_outbound": "context"}
+        defaults = {"db_write": "ask", "network_outbound": "context"}
         # allow < ask → rejected
-        result = _merge_dict_tighten({}, {"sql_write": "allow"}, defaults=defaults)
-        assert "sql_write" not in result
+        result = _merge_dict_tighten({}, {"db_write": "allow"}, defaults=defaults)
+        assert "db_write" not in result
         # block > ask → accepted
-        result = _merge_dict_tighten({}, {"sql_write": "block"}, defaults=defaults)
-        assert result["sql_write"] == "block"
+        result = _merge_dict_tighten({}, {"db_write": "block"}, defaults=defaults)
+        assert result["db_write"] == "block"
         # allow < context → rejected
         result = _merge_dict_tighten({}, {"network_outbound": "allow"}, defaults=defaults)
         assert "network_outbound" not in result

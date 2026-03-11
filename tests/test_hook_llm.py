@@ -142,9 +142,9 @@ class TestIsLlmEligible:
         assert _is_llm_eligible(result) is True
 
     def test_eligible_list_direct_action_type(self):
-        """llm_eligible=['sql_write'] — direct action type match."""
-        config._cached_config = NahConfig(llm_eligible=["sql_write"])
-        sr_sql = StageResult(tokens=["psql"], action_type="sql_write", decision=taxonomy.ASK, reason="db write")
+        """llm_eligible=['db_write'] — direct action type match."""
+        config._cached_config = NahConfig(llm_eligible=["db_write"])
+        sr_sql = StageResult(tokens=["psql"], action_type="db_write", decision=taxonomy.ASK, reason="db write")
         r_sql = ClassifyResult(command="psql -c 'DROP TABLE'", stages=[sr_sql], final_decision=taxonomy.ASK, reason="db")
         assert _is_llm_eligible(r_sql) is True
 
