@@ -112,7 +112,8 @@ def _is_llm_eligible(result) -> bool:
     try:
         from nah.config import get_config
         eligible = get_config().llm_eligible
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: llm_eligible: {exc}\n")
         eligible = "default"
 
     if eligible == "all":
@@ -162,15 +163,16 @@ def _build_llm_meta(llm_call, cfg) -> dict:
             "llm_latency_ms": llm_call.latency_ms,
             "llm_reasoning": llm_call.reasoning,
             "llm_cascade": [
-                {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms}
+                {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms,
+                 **({"error": a.error} if a.error else {})}
                 for a in llm_call.cascade
             ],
         }
     try:
         if cfg.log and cfg.log.get("llm_prompt", False):
             llm_meta["llm_prompt"] = llm_call.prompt
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: log.llm_prompt: {exc}\n")
     return llm_meta
 
 
@@ -196,7 +198,8 @@ def _cap_llm_decision(llm_decision: dict) -> dict:
     try:
         from nah.config import get_config
         cap = get_config().llm_max_decision
-    except Exception:
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: llm_max_decision: {exc}\n")
         return llm_decision
     if not cap:
         return llm_decision
@@ -339,8 +342,8 @@ def _log_hook_decision(
         try:
             from nah.config import get_config
             log_config = get_config().log or None
-        except Exception:
-            pass
+        except Exception as exc:
+            sys.stderr.write(f"nah: config: log: {exc}\n")
 
         log_decision(entry, log_config)
     except Exception as exc:

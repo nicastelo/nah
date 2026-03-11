@@ -24,6 +24,7 @@ class ProviderAttempt:
     status: str       # "success", "error", "uncertain"
     latency_ms: int
     model: str = ""
+    error: str = ""
 
 
 @dataclass
@@ -268,12 +269,9 @@ def _call_ollama(config: dict, prompt: str) -> LLMResult | None:
     body = json.dumps({"model": model, "prompt": prompt, "stream": False}).encode()
     req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
 
-    try:
-        resp = urllib.request.urlopen(req, timeout=timeout)
-        data = json.loads(resp.read())
-        return _parse_response(data.get("response", ""))
-    except (URLError, OSError, json.JSONDecodeError, KeyError):
-        return None
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    data = json.loads(resp.read())
+    return _parse_response(data.get("response", ""))
 
 
 def _call_openai_compat(
@@ -304,13 +302,10 @@ def _call_openai_compat(
         "Authorization": f"Bearer {key}",
     })
 
-    try:
-        resp = urllib.request.urlopen(req, timeout=timeout)
-        data = json.loads(resp.read())
-        content = data["choices"][0]["message"]["content"]
-        return _parse_response(content)
-    except (URLError, OSError, json.JSONDecodeError, KeyError, IndexError):
-        return None
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    data = json.loads(resp.read())
+    content = data["choices"][0]["message"]["content"]
+    return _parse_response(content)
 
 
 def _call_cortex(config: dict, prompt: str) -> LLMResult | None:
@@ -358,17 +353,14 @@ def _call_openai_responses(
         "Authorization": f"Bearer {key}",
     })
 
-    try:
-        resp = urllib.request.urlopen(req, timeout=timeout)
-        data = json.loads(resp.read())
-        for item in data.get("output", []):
-            if item.get("type") == "message":
-                for c in item.get("content", []):
-                    if c.get("type") == "output_text":
-                        return _parse_response(c["text"])
-        return None
-    except (URLError, OSError, json.JSONDecodeError, KeyError, IndexError):
-        return None
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    data = json.loads(resp.read())
+    for item in data.get("output", []):
+        if item.get("type") == "message":
+            for c in item.get("content", []):
+                if c.get("type") == "output_text":
+                    return _parse_response(c["text"])
+    return None
 
 
 def _call_openai(config: dict, prompt: str) -> LLMResult | None:
@@ -402,13 +394,10 @@ def _call_anthropic(config: dict, prompt: str) -> LLMResult | None:
         "anthropic-version": "2023-06-01",
     })
 
-    try:
-        resp = urllib.request.urlopen(req, timeout=timeout)
-        data = json.loads(resp.read())
-        content = data["content"][0]["text"]
-        return _parse_response(content)
-    except (URLError, OSError, json.JSONDecodeError, KeyError, IndexError):
-        return None
+    resp = urllib.request.urlopen(req, timeout=timeout)
+    data = json.loads(resp.read())
+    content = data["content"][0]["text"]
+    return _parse_response(content)
 
 
 _PROVIDERS = {
@@ -420,27 +409,31 @@ _PROVIDERS = {
 }
 
 
-def _call_provider(name: str, config: dict, prompt: str) -> tuple[LLMResult | None, int]:
-    """Dispatch to the named provider. Returns (result, elapsed_ms)."""
+def _call_provider(name: str, config: dict, prompt: str) -> tuple[LLMResult | None, int, str]:
+    """Dispatch to the named provider. Returns (result, elapsed_ms, error_str)."""
     fn = _PROVIDERS.get(name)
     if fn is None:
-        return None, 0
+        return None, 0, f"unknown provider: {name}"
     t0 = time.monotonic()
     try:
         result = fn(config, prompt)
         elapsed = int((time.monotonic() - t0) * 1000)
-        return result, elapsed
-    except (URLError, OSError, TimeoutError):
+        return result, elapsed, ""
+    except (URLError, OSError, TimeoutError) as exc:
         elapsed = int((time.monotonic() - t0) * 1000)
-        return None, elapsed  # expected: provider unavailable, try next
-    except (json.JSONDecodeError, KeyError, IndexError):
+        err = f"{type(exc).__name__}: {exc}"
+        sys.stderr.write(f"nah: LLM {name}: {err}\n")
+        return None, elapsed, err
+    except (json.JSONDecodeError, KeyError, IndexError) as exc:
         elapsed = int((time.monotonic() - t0) * 1000)
-        sys.stderr.write(f"nah: LLM {name}: bad response format\n")
-        return None, elapsed  # expected: LLM returned garbage
+        err = f"bad response format: {exc}"
+        sys.stderr.write(f"nah: LLM {name}: {err}\n")
+        return None, elapsed, err
     except Exception as exc:
         elapsed = int((time.monotonic() - t0) * 1000)
-        sys.stderr.write(f"nah: LLM {name}: unexpected error: {exc}\n")
-        return None, elapsed  # unexpected but can't crash the hook
+        err = f"unexpected error: {exc}"
+        sys.stderr.write(f"nah: LLM {name}: {err}\n")
+        return None, elapsed, err
 
 
 _DEFAULT_MODELS = {
@@ -465,10 +458,10 @@ def _try_providers(prompt: str, llm_config: dict, label: str) -> LLMCallResult:
             continue
 
         model = provider_config.get("model", _DEFAULT_MODELS.get(provider_name, ""))
-        result, elapsed = _call_provider(provider_name, provider_config, prompt)
+        result, elapsed, error = _call_provider(provider_name, provider_config, prompt)
 
         if result is None:
-            call_result.cascade.append(ProviderAttempt(provider_name, "error", elapsed, model))
+            call_result.cascade.append(ProviderAttempt(provider_name, "error", elapsed, model, error))
             continue
 
         if result.decision == "allow":

@@ -4,6 +4,7 @@ Classification data and policies are loaded from JSON files in data/.
 """
 
 import json
+import sys
 from pathlib import Path
 
 _DATA_DIR = Path(__file__).parent / "data"
@@ -119,11 +120,10 @@ def _ensure_exec_sinks_merged():
         add, remove = _parse_add_remove(cfg.exec_sinks)
         EXEC_SINKS.update(str(s) for s in add)
         if remove:
-            import sys
             sys.stderr.write("nah: warning: exec_sinks.remove weakens composition rules\n")
             EXEC_SINKS.difference_update(str(s) for s in remove)
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: exec_sinks: {exc}\n")
 
 
 def reset_exec_sinks():
@@ -159,7 +159,6 @@ def _ensure_decode_commands_merged():
         add, remove = _parse_add_remove(cfg.decode_commands)
         # Remove by command name (all flag variants)
         if remove:
-            import sys
             sys.stderr.write("nah: warning: decode_commands.remove weakens composition rules\n")
             remove_cmds = {str(c) for c in remove}
             DECODE_COMMANDS[:] = [(c, f) for c, f in DECODE_COMMANDS if c not in remove_cmds]
@@ -170,8 +169,8 @@ def _ensure_decode_commands_merged():
                 cmd = parts[0]
                 flag = parts[1] if len(parts) > 1 else None
                 DECODE_COMMANDS.append((cmd, flag))
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: decode_commands: {exc}\n")
 
 
 def reset_decode_commands():

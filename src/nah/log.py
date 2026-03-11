@@ -3,6 +3,7 @@
 import json
 import os
 import re
+import sys
 from datetime import datetime, timezone
 
 _CONFIG_DIR = os.path.join(os.path.expanduser("~"), ".config", "nah")
@@ -43,8 +44,11 @@ def log_decision(entry: dict, log_config: dict | None = None) -> None:
 
         with open(LOG_PATH, "a") as f:
             f.write(line)
-    except Exception:
-        pass
+    except Exception as exc:
+        try:
+            sys.stderr.write(f"nah: log: {exc}\n")
+        except Exception:
+            pass
 
 
 def _rotate() -> None:
@@ -53,12 +57,13 @@ def _rotate() -> None:
         if os.path.exists(_LOG_BACKUP):
             os.unlink(_LOG_BACKUP)
         os.rename(LOG_PATH, _LOG_BACKUP)
-    except OSError:
+    except OSError as exc:
+        sys.stderr.write(f"nah: log: rotation: {exc}\n")
         try:
             with open(LOG_PATH, "w") as f:
                 f.write("")
-        except OSError:
-            pass
+        except OSError as exc2:
+            sys.stderr.write(f"nah: log: rotation reset: {exc2}\n")
 
 
 def redact_input(tool: str, tool_input: dict) -> str:

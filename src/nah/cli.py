@@ -380,8 +380,8 @@ def cmd_uninstall(args: argparse.Namespace) -> None:
                     if _is_nah_hook(entry):
                         any_remaining = True
                         break
-            except Exception:
-                pass
+            except Exception as exc:
+                sys.stderr.write(f"nah: uninstall: {exc}\n")
 
     if any_remaining:
         print(f"  Hook script: {_HOOK_SCRIPT} (kept — other agents still use it)")

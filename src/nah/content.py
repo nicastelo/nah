@@ -164,8 +164,8 @@ def _ensure_content_patterns_merged() -> None:
                 continue
             _CREDENTIAL_SEARCH_PATTERNS.append(compiled)
 
-    except Exception:
-        pass  # fail-open: if config unavailable, use whatever state we have
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: content_patterns: {exc}\n")
 
 
 def reset_content_patterns() -> None:

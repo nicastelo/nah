@@ -1,6 +1,7 @@
 """Context resolution — filesystem and network context for 'context' policy decisions."""
 
 import os
+import sys
 import urllib.parse
 
 from nah import paths, taxonomy
@@ -38,8 +39,8 @@ def _ensure_known_hosts_merged():
         add, remove = _parse_add_remove(cfg.known_registries)
         _known_hosts.update(str(h) for h in add)
         _known_hosts.difference_update(str(h) for h in remove)
-    except Exception:
-        pass
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: known_registries: {exc}\n")
 
 
 def reset_known_hosts():
