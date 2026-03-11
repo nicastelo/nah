@@ -92,6 +92,11 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     if not target_path:
         return taxonomy.ALLOW, "no target path"
 
+    # profile: none disables boundary check (defense in depth)
+    from nah.config import get_config
+    if get_config().profile == "none":
+        return taxonomy.ALLOW, "profile: none (no boundary check)"
+
     resolved = paths.resolve_path(target_path)
 
     # Core path check (hook + sensitive)
@@ -107,6 +112,10 @@ def resolve_filesystem_context(target_path: str) -> tuple[str, str]:
     real_root = os.path.realpath(project_root)
     if resolved == real_root or resolved.startswith(real_root + os.sep):
         return taxonomy.ALLOW, f"inside project: {paths.friendly_path(resolved)}"
+
+    # Trusted paths check
+    if paths.is_trusted_path(resolved):
+        return taxonomy.ALLOW, f"trusted path: {paths.friendly_path(resolved)}"
 
     return taxonomy.ASK, f"outside project: {paths.friendly_path(resolved)}"
 

@@ -89,12 +89,14 @@ class TestPathHints:
 class TestContentHints:
     """Content inspection asks should have non-rememberable hint."""
 
-    def test_write_content_hint(self):
+    def test_write_content_hint(self, project_root):
         """Content inspection ask → hint says cannot be remembered."""
+        import os
         from nah.hook import handle_write
-        # Write content with something that looks like a secret
+        # Write content with something that looks like a secret (inside project)
+        target = os.path.join(project_root, "test.py")
         decision = handle_write({
-            "file_path": "/tmp/test.py",
+            "file_path": target,
             "content": "AKIAIOSFODNN7EXAMPLE",  # AWS-style key
         })
         if decision["decision"] == taxonomy.ASK:

@@ -12,10 +12,14 @@ _transcript_path: str = ""  # set per-invocation by main()
 
 
 def _check_write_content(tool_name: str, tool_input: dict, content_field: str) -> dict:
-    """Shared handler for Write/Edit: path check + content inspection."""
-    path_check = paths.check_path(tool_name, tool_input.get("file_path", ""))
+    """Shared handler for Write/Edit: path check + boundary check + content inspection."""
+    file_path = tool_input.get("file_path", "")
+    path_check = paths.check_path(tool_name, file_path)
     if path_check:
         return path_check
+    boundary_check = paths.check_project_boundary(tool_name, file_path)
+    if boundary_check:
+        return boundary_check
     content = tool_input.get(content_field, "")
     matches = scan_content(content)
     if matches:
@@ -79,6 +83,16 @@ def handle_grep(tool_input: dict) -> dict:
                 }
 
     return {"decision": taxonomy.ALLOW}
+
+
+def _extract_target_from_tokens(tokens: list[str]) -> str | None:
+    """Extract first path-like argument from tokens for hint generation."""
+    for tok in tokens[1:]:  # skip command name
+        if tok.startswith("-"):
+            continue
+        if "/" in tok or tok.startswith("~") or tok.startswith("."):
+            return tok
+    return None
 
 
 def _format_bash_reason(result) -> str:
@@ -212,6 +226,12 @@ def _build_bash_hint(result) -> str | None:
             idx = sr.reason.index("targets sensitive path:") + len("targets sensitive path: ")
             path = sr.reason[idx:].strip()
             return f"To always allow: nah allow-path {path}"
+        if "outside project" in sr.reason:
+            # Extract target from tokens and suggest trust dir
+            target = _extract_target_from_tokens(sr.tokens)
+            if target:
+                dir_hint = paths._suggest_trust_dir(target)
+                return f"To always allow: nah trust {dir_hint}"
         # Action policy ask
         return f"To always allow: nah allow {sr.action_type}"
     return None

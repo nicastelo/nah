@@ -27,6 +27,7 @@ class NahConfig:
     llm: dict = field(default_factory=dict)
     llm_max_decision: str = "ask"  # default: LLM can't escalate past ask
     llm_eligible: str | list = "default"
+    trusted_paths: list[str] = field(default_factory=list)
     db_targets: list[dict] = field(default_factory=list)
     log: dict = field(default_factory=dict)
 
@@ -190,6 +191,11 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
         config.llm_eligible = [str(v) for v in raw_eligible]
     else:
         config.llm_eligible = "default"
+
+    # trusted_paths: global config ONLY (project .nah.yaml cannot set)
+    g_trusted = global_cfg.get("trusted_paths", [])
+    if isinstance(g_trusted, list):
+        config.trusted_paths = [str(p) for p in g_trusted]
 
     # db_targets: global config ONLY — project .nah.yaml silently ignored
     g_targets = global_cfg.get("db_targets", [])

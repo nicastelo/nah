@@ -151,6 +151,7 @@ def _ensure_sensitive_paths_merged() -> None:
     from nah.config import get_config  # lazy import to avoid circular
     cfg = get_config()
     if cfg.profile == "none":
+        _SENSITIVE_DIRS.clear()
         _SENSITIVE_BASENAMES.clear()
     if cfg.sensitive_paths:
         build_merged_sensitive_paths(cfg.sensitive_paths, cfg.sensitive_paths_default)
@@ -212,6 +213,67 @@ def check_path(tool_name: str, raw_path: str) -> dict | None:
         }
 
     return None
+
+
+def is_trusted_path(resolved: str) -> bool:
+    """Check if resolved path is inside a trusted_paths directory."""
+    from nah.config import get_config  # lazy import to avoid circular
+    cfg = get_config()
+    if cfg.profile == "none":
+        return True  # boundary check disabled; defense in depth
+    for entry in cfg.trusted_paths:
+        trust_dir = resolve_path(entry)
+        if resolved == trust_dir or resolved.startswith(trust_dir + os.sep):
+            return True
+    return False
+
+
+def _suggest_trust_dir(raw_path: str) -> str:
+    """Suggest a directory to trust for a given path.
+
+    Under $HOME: ~/first_component (e.g. ~/builds).
+    Elsewhere: parent directory (e.g. /tmp/foo/bar.txt → /tmp/foo).
+    Special: if parent is root (/), return the resolved path itself.
+    """
+    resolved = resolve_path(raw_path)
+    home = os.path.realpath(os.path.expanduser("~"))
+    if resolved.startswith(home + os.sep):
+        # Under home: return ~/first_component
+        rel = resolved[len(home) + 1:]  # strip home + /
+        first_component = rel.split(os.sep)[0]
+        return f"~/{first_component}"
+    # Outside home: return parent directory
+    parent = os.path.dirname(resolved)
+    if parent == "/":
+        return resolved
+    return parent
+
+
+def check_project_boundary(tool_name: str, raw_path: str) -> dict | None:
+    """Check if path is outside project root + trusted_paths. Returns dict or None (= allow)."""
+    if not raw_path:
+        return None
+    from nah.config import get_config  # lazy import to avoid circular
+    if get_config().profile == "none":
+        return None  # boundary check disabled (D9)
+    resolved = resolve_path(raw_path)
+    project_root = get_project_root()
+    if project_root is None:
+        return {
+            "decision": taxonomy.ASK,
+            "reason": f"{tool_name} outside project (no git root): {friendly_path(resolved)}",
+            "_hint": f"To always allow: nah trust {_suggest_trust_dir(raw_path)}",
+        }
+    real_root = os.path.realpath(project_root)
+    if resolved == real_root or resolved.startswith(real_root + os.sep):
+        return None  # inside project
+    if is_trusted_path(resolved):
+        return None  # inside trusted directory
+    return {
+        "decision": taxonomy.ASK,
+        "reason": f"{tool_name} outside project: {friendly_path(resolved)}",
+        "_hint": f"To always allow: nah trust {_suggest_trust_dir(raw_path)}",
+    }
 
 
 def set_project_root(path: str) -> None:

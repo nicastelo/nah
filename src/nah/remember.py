@@ -173,6 +173,28 @@ def write_trust_host(host: str) -> str:
     return f"Trusted: {host} (global)"
 
 
+def write_trust_path(raw_path: str) -> str:
+    """Write a trusted_paths entry to global config. Returns confirmation message."""
+    _ensure_yaml()
+    from nah.paths import resolve_path
+    resolved = resolve_path(raw_path)
+    if resolved == "/":
+        raise ValueError("Refusing to trust filesystem root")
+    path = get_global_config_path()
+    data = _read_config(path)
+    trusted = data.setdefault("trusted_paths", [])
+    if not isinstance(trusted, list):
+        trusted = []
+        data["trusted_paths"] = trusted
+    # Check if already trusted (resolve-and-compare, not just string match)
+    for entry in trusted:
+        if entry == raw_path or resolve_path(entry) == resolved:
+            return f"Already trusted: {raw_path}"
+    trusted.append(raw_path)
+    _write_config(path, data)
+    return f"Trusted path: {raw_path} (global config)"
+
+
 def forget_rule(arg: str, project: bool | None = None, global_only: bool | None = None) -> str:
     """Find and remove a rule matching arg. Returns confirmation message."""
     _ensure_yaml()
@@ -240,6 +262,15 @@ def forget_rule(arg: str, project: bool | None = None, global_only: bool | None 
             add = decode_cmds.get("add", [])
             if isinstance(add, list) and arg in add:
                 matches.append((cfg_path, "decode_commands.add", arg))
+        # Check trusted_paths (resolve and compare)
+        trusted = data.get("trusted_paths", [])
+        if isinstance(trusted, list):
+            from nah.paths import resolve_path
+            resolved_arg = resolve_path(arg)
+            for i, entry in enumerate(trusted):
+                if entry == arg or resolve_path(entry) == resolved_arg:
+                    matches.append((cfg_path, "trusted_paths", entry))
+                    break
 
     if not matches:
         raise ValueError(f"No rule found matching: {arg}")
@@ -321,6 +352,12 @@ def forget_rule(arg: str, project: bool | None = None, global_only: bool | None 
                 raw.pop("add", None)
             if not raw:
                 data.pop("decode_commands", None)
+    elif section == "trusted_paths":
+        trusted = data.get("trusted_paths", [])
+        if isinstance(trusted, list) and key in trusted:
+            trusted.remove(key)
+        if not trusted:
+            data.pop("trusted_paths", None)
     _write_config(cfg_path, data)
     label = _label_for_path(cfg_path)
     return f"Removed: {arg} from {section} ({label})"
@@ -364,5 +401,8 @@ def list_rules() -> dict:
         decode_commands = data.get("decode_commands", [])
         if isinstance(decode_commands, (list, dict)) and decode_commands:
             result[label]["decode_commands"] = decode_commands
+        trusted_paths = data.get("trusted_paths", [])
+        if isinstance(trusted_paths, list) and trusted_paths:
+            result[label]["trusted_paths"] = trusted_paths
 
     return result

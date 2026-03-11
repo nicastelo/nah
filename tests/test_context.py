@@ -336,3 +336,50 @@ class TestKnownHostsConfigurable:
         # New host added
         decision2, _ = resolve_network_context(["curl", "https://internal.corp.com/pkg"])
         assert decision2 == "allow"
+
+
+# --- FD-054: Trusted path in filesystem context ---
+
+
+class TestTrustedPathContext:
+    """FD-054: trusted_paths in resolve_filesystem_context."""
+
+    def setup_method(self):
+        config._cached_config = NahConfig()
+
+    def teardown_method(self):
+        config._cached_config = None
+
+    def test_trusted_path_allow(self, project_root):
+        """Trusted path outside project → allow."""
+        config._cached_config = NahConfig(trusted_paths=["/tmp"])
+        decision, reason = resolve_filesystem_context("/tmp/file.txt")
+        assert decision == "allow"
+        assert "trusted path" in reason
+
+    def test_untrusted_path_ask(self, project_root):
+        """Non-trusted path outside project → ask."""
+        decision, reason = resolve_filesystem_context("/tmp/file.txt")
+        assert decision == "ask"
+        assert "outside project" in reason
+
+    def test_profile_none_allow(self, project_root):
+        """profile: none → allow (guard line)."""
+        config._cached_config = NahConfig(profile="none")
+        decision, reason = resolve_filesystem_context("/tmp/file.txt")
+        assert decision == "allow"
+        assert "profile: none" in reason
+
+    def test_trusted_nested(self, project_root):
+        """Nested path inside trusted directory → allow."""
+        config._cached_config = NahConfig(trusted_paths=["/tmp"])
+        decision, reason = resolve_filesystem_context("/tmp/deep/nested.txt")
+        assert decision == "allow"
+        assert "trusted path" in reason
+
+    def test_trusted_exact_match(self, project_root):
+        """Trusted directory itself → allow."""
+        config._cached_config = NahConfig(trusted_paths=["/tmp"])
+        decision, reason = resolve_filesystem_context("/tmp")
+        assert decision == "allow"
+        assert "trusted path" in reason

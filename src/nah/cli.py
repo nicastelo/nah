@@ -251,6 +251,7 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  sensitive_paths_default: {cfg.sensitive_paths_default}")
         print(f"  sensitive_paths:       {cfg.sensitive_paths or '{}'}")
         print(f"  allow_paths:           {cfg.allow_paths or '{}'}")
+        print(f"  trusted_paths:         {cfg.trusted_paths or '[]'}")
         print(f"  known_registries:      {cfg.known_registries or '[]'}")
         print(f"  exec_sinks:            {cfg.exec_sinks or '[]'}")
         print(f"  sensitive_basenames:   {cfg.sensitive_basenames or '{}'}")
@@ -481,15 +482,47 @@ def cmd_classify(args: argparse.Namespace) -> None:
 
 
 def cmd_trust(args: argparse.Namespace) -> None:
-    """Trust a network host (global config only)."""
-    from nah.remember import write_trust_host
-    _warn_comments(project=False)
-    try:
-        msg = write_trust_host(args.host)
-        print(msg)
-    except (ValueError, RuntimeError) as e:
-        print(str(e), file=sys.stderr)
+    """Trust a path or network host (global config only)."""
+    target = args.target
+    is_path = target.startswith(("/", "~", "."))
+
+    if is_path and getattr(args, "project", False):
+        print("trusted_paths is global-only — cannot use --project", file=sys.stderr)
         sys.exit(1)
+
+    _warn_comments(project=False)
+
+    if is_path:
+        from nah.remember import write_trust_path
+        from nah.paths import resolve_path, is_sensitive
+        resolved = resolve_path(target)
+        if resolved == "/":
+            print("nah: refusing to trust filesystem root", file=sys.stderr)
+            sys.exit(1)
+        home = os.path.realpath(os.path.expanduser("~"))
+        if resolved == home:
+            print("\u26a0 Trusting ~ allows writes to your entire home directory.")
+            print("  Sensitive paths (~/.ssh, ~/.aws, ...) are still protected.")
+            if not _confirm("Continue?"):
+                sys.exit(1)
+        # Informational warning if path overlaps a sensitive path
+        matched, pattern, _policy = is_sensitive(resolved)
+        if matched:
+            print(f"\u26a0 {pattern} is a sensitive path \u2014 still blocked/asked regardless.")
+        try:
+            msg = write_trust_path(target)
+            print(msg)
+        except (ValueError, RuntimeError) as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
+    else:
+        from nah.remember import write_trust_host
+        try:
+            msg = write_trust_host(target)
+            print(msg)
+        except (ValueError, RuntimeError) as e:
+            print(str(e), file=sys.stderr)
+            sys.exit(1)
 
 
 def cmd_status(args: argparse.Namespace) -> None:
@@ -540,6 +573,9 @@ def cmd_status(args: argparse.Namespace) -> None:
         if "sensitive_basenames" in scope_rules:
             for name, policy in scope_rules["sensitive_basenames"].items():
                 print(f"  sensitive-basename: {name} → {policy}")
+        if "trusted_paths" in scope_rules:
+            for p in scope_rules["trusted_paths"]:
+                print(f"  trust-path: {p}")
         if "decode_commands" in scope_rules:
             from nah.config import _parse_add_remove
             add, remove = _parse_add_remove(scope_rules["decode_commands"])
@@ -672,8 +708,9 @@ def main():
     classify_parser.add_argument("command_prefix", help="Command prefix to classify")
     classify_parser.add_argument("type", help="Action type to assign")
     classify_parser.add_argument("--project", action="store_true", help="Write to project config")
-    trust_parser = sub.add_parser("trust", help="Trust a network host (global only)")
-    trust_parser.add_argument("host", help="Hostname to trust")
+    trust_parser = sub.add_parser("trust", help="Trust a path or network host (global only)")
+    trust_parser.add_argument("target", help="Path or hostname to trust")
+    trust_parser.add_argument("--project", action="store_true", help="Write to project config (rejected for paths)")
     sub.add_parser("status", help="Show all custom rules")
     forget_parser = sub.add_parser("forget", help="Remove a rule")
     forget_parser.add_argument("arg", help="Rule to remove (action type, path, command, or host)")

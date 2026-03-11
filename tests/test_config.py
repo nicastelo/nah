@@ -406,3 +406,42 @@ class TestSafetyLists:
         assert _parse_add_remove("string") == ([], [])
         assert _parse_add_remove(42) == ([], [])
         assert _parse_add_remove(None) == ([], [])
+
+
+# --- FD-054: trusted_paths config loading ---
+
+
+class TestTrustedPaths:
+    """FD-054: trusted_paths config loading."""
+
+    def test_global_loads_trusted_paths(self):
+        cfg = _merge_configs({"trusted_paths": ["/tmp", "~/bin"]}, {})
+        assert cfg.trusted_paths == ["/tmp", "~/bin"]
+
+    def test_project_trusted_paths_ignored(self):
+        """Project config cannot set trusted_paths."""
+        cfg = _merge_configs({}, {"trusted_paths": ["/tmp"]})
+        assert cfg.trusted_paths == []
+
+    def test_invalid_type_dict(self):
+        """Invalid type (dict) → empty list."""
+        cfg = _merge_configs({"trusted_paths": {"path": "/tmp"}}, {})
+        assert cfg.trusted_paths == []
+
+    def test_invalid_type_string(self):
+        """Invalid type (string) → empty list."""
+        cfg = _merge_configs({"trusted_paths": "/tmp"}, {})
+        assert cfg.trusted_paths == []
+
+    def test_empty_list(self):
+        cfg = _merge_configs({"trusted_paths": []}, {})
+        assert cfg.trusted_paths == []
+
+    def test_default_empty(self):
+        cfg = _merge_configs({}, {})
+        assert cfg.trusted_paths == []
+
+    def test_entries_coerced_to_str(self):
+        """Non-string entries are coerced to str."""
+        cfg = _merge_configs({"trusted_paths": [42, True]}, {})
+        assert cfg.trusted_paths == ["42", "True"]
