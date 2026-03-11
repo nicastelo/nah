@@ -38,6 +38,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Context resolver no longer silently allows action types without an explicit resolver branch — `_resolve_context()` defaults to ask, `_extract_primary_target()` guarded behind filesystem types only (FD-046)
+- Tighten-only config merge no longer accepts loosening overrides for new keys — project `.nah.yaml` action policies validated against built-in defaults from `policies.json` (FD-048)
 - Unknown/unhandled tools now default to ask instead of silent allow — added `write_to_file → Write` TOOL_MAP entry for Cursor (FD-037)
 - Unknown tool policy (`actions.unknown`) in user config is now respected — previously hardcoded to `ask` regardless of config (FD-045)
 - `nah config show` no longer crashes — updated to use renamed `classify_global`/`classify_project` fields and display `profile`, `llm_max_decision`, `ask_fallback` (FD-044)
