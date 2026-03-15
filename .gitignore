@@ -28,3 +28,8 @@ scripts/
 *.db
 .beads/
 .mold/
+
+# autoresearch (local only)
+program.md
+results.tsv
+run.log
