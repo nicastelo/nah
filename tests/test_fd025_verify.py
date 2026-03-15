@@ -21,10 +21,13 @@ def _check(tool, path):
 
 
 class TestFD025LiveVerification:
-    """Verify config overrides with the real ~/.config/nah/config.yaml."""
+    """Verify config overrides are wired end-to-end."""
 
-    def test_bash_profile_local_ask_from_config(self):
-        assert _check("Read", HOME + "/.bash_profile.local") == "ask"
+    def test_bash_profile_local_ask_from_config(self, tmp_path):
+        cfg = tmp_path / "config.yaml"
+        cfg.write_text("sensitive_basenames:\n  .bash_profile.local: ask\n")
+        with patch("nah.config._GLOBAL_CONFIG", str(cfg)):
+            assert _check("Read", HOME + "/.bash_profile.local") == "ask"
 
     def test_gnupg_hardcoded_block(self):
         assert _check("Read", HOME + "/.gnupg/key") == "block"
