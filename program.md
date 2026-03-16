@@ -3,8 +3,8 @@
 run_tag: hackathon
 branch: autoresearch/hackathon
 status: active
-current_cycle: 31
-next_cycle: 32
+current_cycle: 32
+next_cycle: 33
 
 Context:
 - Fresh clone of `autoresearch/hackathon` surfaced newer upstream code while the tracked local run ledger still stopped at cycle 24; continue from the activity ledger while keeping the branch head fixes in view.
@@ -17,6 +17,7 @@ Context:
 - Cycle 29 closes `timeout` passthrough gaps where duration-prefixed wrappers like `timeout 5 bash -c ...`, `timeout -s KILL 5 bash -c ...`, and `command timeout -p 5 bash -c ...` fell back to unknown instead of preserving safe inner classification or redirect payload inspection.
 - Cycle 30 closes `ionice` passthrough gaps where scheduling wrappers like `ionice -c 3 bash -c ...`, `ionice --class idle bash -c ...`, and `command ionice -t -c 3 bash -c ...` fell back to unknown instead of preserving safe inner classification or redirect payload inspection while process-targeting forms stay fail-closed.
 - Cycle 31 closes `timeout` clustered short-option gaps where forms like `timeout -vp 5 bash -c ...`, `timeout -vk 1s 5 bash -c ...`, `timeout -vs KILL 5 bash -c ...`, and glued argument variants like `timeout -vk1s ...` or `timeout -vsKILL ...` fell back to unknown instead of preserving passthrough unwrapping or redirect payload inspection.
+- Cycle 32 closes `ionice` clustered short-option gaps where forms like `ionice -tc3 bash -c ...`, `ionice -tc2 -n4 bash -c ...`, `/usr/bin/ionice -tc3 ...`, and `command ionice -tc3 ...` fell back to unknown instead of preserving passthrough unwrapping or redirect payload inspection while clustered process-targeting forms stay fail-closed.
 
 Cycle 29 closed:
 - Strip `timeout` wrapper layers before recursive classification and redirect-literal extraction so safe inner commands keep their underlying action type.
@@ -38,7 +39,13 @@ Cycle 31 closed:
 - Add regression coverage for plain, `/usr/bin/timeout`, and `command timeout` clustered forms plus malformed timeout clusters that must stay `unknown`.
 - Re-run the full pytest suite to confirm passthrough-wrapper behavior stays stable across the classifier.
 
+Cycle 32 closed:
+- Extend `ionice` passthrough stripping to parse clustered short options so no-arg `-t` combines safely with arg-taking `-c` / `-n` forms like `-tc3` and `-tc2 -n4` without losing inner-command classification.
+- Keep fail-closed behavior for clustered process-targeting flags like `-tp123` / `-tu123` and unknown clustered forms instead of guessing through ambiguous syntax.
+- Add regression coverage for plain, `/usr/bin/ionice`, and `command ionice` clustered forms plus clustered process-targeting forms that must stay `unknown`.
+- Re-run the full pytest suite to confirm passthrough-wrapper behavior stays stable across the classifier.
+
 Next scan ideas:
 - Probe wrappers with side effects like `nohup` to document which ones should stay fail-closed versus classify through to the inner command.
 - Continue credential-store/path coverage for less common developer tooling.
-- Audit other passthrough wrappers for clustered short-option parsing inconsistencies.
+- Audit other passthrough wrappers with mixed no-arg and arg-taking short flags for clustered parsing inconsistencies.
