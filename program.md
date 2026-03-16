@@ -3,8 +3,8 @@
 run_tag: hackathon
 branch: autoresearch/hackathon
 status: active
-current_cycle: 28
-next_cycle: 29
+current_cycle: 29
+next_cycle: 30
 
 Context:
 - Fresh clone of `autoresearch/hackathon` surfaced newer upstream code while the tracked local run ledger still stopped at cycle 24; continue from the activity ledger while keeping the branch head fixes in view.
@@ -14,14 +14,16 @@ Context:
 - Cycle 26 closes shell-wrapper `-c` redirect gaps where `bash -c`, `sh -c`, leading shell flags, and `command bash -c` allowed secret or destructive literal writes inside the project without content inspection.
 - Cycle 27 closes `stdbuf` passthrough gaps where buffered shell wrappers like `stdbuf -oL bash -c ... > file` and `command stdbuf --output=L bash -lc ... > file` fell back to unknown instead of preserving safe inner classification or redirect payload inspection.
 - Cycle 28 closes `setsid` passthrough gaps where detached shell wrappers like `setsid bash -c ...`, `setsid --wait bash -lc ...`, and `command setsid -w bash -c ...` fell back to unknown instead of preserving safe inner classification or redirect payload inspection.
+- Cycle 29 closes `timeout` passthrough gaps where duration-prefixed wrappers like `timeout 5 bash -c ...`, `timeout -s KILL 5 bash -c ...`, and `command timeout -p 5 bash -c ...` fell back to unknown instead of preserving safe inner classification or redirect payload inspection.
 
-Cycle 28 closed:
-- Strip `setsid` wrapper layers before recursive classification and redirect-literal extraction so safe inner commands keep their underlying action type.
-- Support exact `setsid` no-arg flags `-c`, `-f`, `-w`, `--ctty`, `--fork`, and `--wait` while failing closed on unknown options.
-- Add regression coverage for safe wrapped `git status` plus secret/destructive `bash -c` redirect payloads through `setsid`, `/usr/bin/setsid`, and `command setsid` forms.
+Cycle 29 closed:
+- Strip `timeout` wrapper layers before recursive classification and redirect-literal extraction so safe inner commands keep their underlying action type.
+- Support exact timeout no-arg flags `-f`, `-p`, `-v`, `--foreground`, `--preserve-status`, and `--verbose` plus `-k`/`-s` and `--kill-after=`/`--signal=` argument forms while failing closed on unknown options.
+- Treat the first non-flag token as the timeout duration, then classify the remaining inner command so wrapped `bash -c` redirects still inspect literal secret/destructive payloads.
+- Add regression coverage for safe wrapped `git status` plus secret/destructive `bash -c` redirect payloads through `timeout`, `/usr/bin/timeout`, and `command timeout` forms.
 - Re-run the full pytest suite to confirm passthrough-wrapper behavior stays stable across the classifier.
 
 Next scan ideas:
-- Probe whether `setsid --` and any combined short-option forms deserve passthrough support or should stay fail-closed.
-- Probe wrappers with side effects like `nohup`, `timeout`, or `ionice` to document which ones should stay fail-closed versus classify through to the inner command.
+- Probe whether `timeout --` after the duration and any clustered short-option forms deserve explicit passthrough coverage or should stay fail-closed.
+- Probe wrappers with side effects like `nohup` or `ionice` to document which ones should stay fail-closed versus classify through to the inner command.
 - Continue credential-store/path coverage for less common developer tooling.
