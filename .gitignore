@@ -29,7 +29,3 @@ scripts/
 .beads/
 .mold/
 
-# autoresearch (local only)
-program.md
-activity.jsonl
-run.log
