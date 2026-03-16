@@ -107,6 +107,13 @@ class TestIsSensitive:
         assert matched is True
         assert policy == "ask"
 
+    def test_azure_ask(self):
+        resolved = paths.resolve_path("~/.azure/accessTokens.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.azure"
+        assert policy == "ask"
+
     def test_gcloud_ask(self):
         resolved = paths.resolve_path("~/.config/gcloud/credentials.json")
         matched, _, policy = paths.is_sensitive(resolved)
@@ -118,6 +125,13 @@ class TestIsSensitive:
         matched, pattern, policy = paths.is_sensitive(resolved)
         assert matched is True
         assert pattern == "~/.config/gh"
+        assert policy == "ask"
+
+    def test_docker_config_ask(self):
+        resolved = paths.resolve_path("~/.docker/config.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.docker/config.json"
         assert policy == "ask"
 
     def test_env_basename(self):
@@ -182,11 +196,23 @@ class TestCheckPath:
         assert result is not None
         assert result["decision"] == "ask"
 
+    def test_sensitive_ask_azure(self):
+        result = paths.check_path("Read", "~/.azure/accessTokens.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.azure" in result["reason"]
+
     def test_github_cli_hosts_ask(self):
         result = paths.check_path("Read", "~/.config/gh/hosts.yml")
         assert result is not None
         assert result["decision"] == "ask"
         assert "~/.config/gh" in result["reason"]
+
+    def test_sensitive_ask_docker_config(self):
+        result = paths.check_path("Read", "~/.docker/config.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.docker/config.json" in result["reason"]
 
     def test_sensitive_block_home_env_var(self):
         result = paths.check_path("Read", "$HOME/.ssh/id_rsa")
@@ -202,6 +228,18 @@ class TestCheckPath:
         result = paths.check_path("Read", "/home/*/.aws/credentials")
         assert result is not None
         assert result["decision"] == "ask"
+
+    def test_sensitive_ask_azure_dynamic_user_substitution(self):
+        result = paths.check_path("Read", "/Users/$(whoami)/.azure/accessTokens.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.azure" in result["reason"]
+
+    def test_sensitive_ask_docker_config_home_glob(self):
+        result = paths.check_path("Read", "/home/*/.docker/config.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.docker/config.json" in result["reason"]
 
     def test_clean_path(self):
         result = paths.check_path("Read", "/tmp/safe.txt")

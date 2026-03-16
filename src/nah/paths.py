@@ -20,8 +20,10 @@ _SENSITIVE_DIRS: list[tuple[str, str, str]] = [
     (os.path.realpath(os.path.join(_HOME, ".git-credentials")), "~/.git-credentials", "block"),
     (os.path.realpath(os.path.join(_HOME, ".netrc")), "~/.netrc", "block"),
     (os.path.realpath(os.path.join(_HOME, ".aws")), "~/.aws", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".azure")), "~/.azure", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".config", "gcloud")), "~/.config/gcloud", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".config", "gh")), "~/.config/gh", "ask"),
+    (os.path.realpath(os.path.join(_HOME, ".docker", "config.json")), "~/.docker/config.json", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".claude", "settings.json")), "~/.claude/settings.json", "ask"),
     (os.path.realpath(os.path.join(_HOME, ".claude", "settings.local.json")), "~/.claude/settings.local.json", "ask"),
 ]
