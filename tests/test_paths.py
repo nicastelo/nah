@@ -113,6 +113,13 @@ class TestIsSensitive:
         assert matched is True
         assert policy == "ask"
 
+    def test_github_cli_hosts_ask(self):
+        resolved = paths.resolve_path("~/.config/gh/hosts.yml")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.config/gh"
+        assert policy == "ask"
+
     def test_env_basename(self):
         matched, pattern, policy = paths.is_sensitive("/project/.env")
         assert matched is True
@@ -174,6 +181,12 @@ class TestCheckPath:
         result = paths.check_path("Read", "~/.aws/credentials")
         assert result is not None
         assert result["decision"] == "ask"
+
+    def test_github_cli_hosts_ask(self):
+        result = paths.check_path("Read", "~/.config/gh/hosts.yml")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.config/gh" in result["reason"]
 
     def test_sensitive_block_home_env_var(self):
         result = paths.check_path("Read", "$HOME/.ssh/id_rsa")
