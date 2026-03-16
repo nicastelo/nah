@@ -3,8 +3,8 @@
 run_tag: hackathon
 branch: autoresearch/hackathon
 status: active
-current_cycle: 29
-next_cycle: 30
+current_cycle: 30
+next_cycle: 31
 
 Context:
 - Fresh clone of `autoresearch/hackathon` surfaced newer upstream code while the tracked local run ledger still stopped at cycle 24; continue from the activity ledger while keeping the branch head fixes in view.
@@ -15,6 +15,7 @@ Context:
 - Cycle 27 closes `stdbuf` passthrough gaps where buffered shell wrappers like `stdbuf -oL bash -c ... > file` and `command stdbuf --output=L bash -lc ... > file` fell back to unknown instead of preserving safe inner classification or redirect payload inspection.
 - Cycle 28 closes `setsid` passthrough gaps where detached shell wrappers like `setsid bash -c ...`, `setsid --wait bash -lc ...`, and `command setsid -w bash -c ...` fell back to unknown instead of preserving safe inner classification or redirect payload inspection.
 - Cycle 29 closes `timeout` passthrough gaps where duration-prefixed wrappers like `timeout 5 bash -c ...`, `timeout -s KILL 5 bash -c ...`, and `command timeout -p 5 bash -c ...` fell back to unknown instead of preserving safe inner classification or redirect payload inspection.
+- Cycle 30 closes `ionice` passthrough gaps where scheduling wrappers like `ionice -c 3 bash -c ...`, `ionice --class idle bash -c ...`, and `command ionice -t -c 3 bash -c ...` fell back to unknown instead of preserving safe inner classification or redirect payload inspection while process-targeting forms stay fail-closed.
 
 Cycle 29 closed:
 - Strip `timeout` wrapper layers before recursive classification and redirect-literal extraction so safe inner commands keep their underlying action type.
@@ -23,7 +24,14 @@ Cycle 29 closed:
 - Add regression coverage for safe wrapped `git status` plus secret/destructive `bash -c` redirect payloads through `timeout`, `/usr/bin/timeout`, and `command timeout` forms.
 - Re-run the full pytest suite to confirm passthrough-wrapper behavior stays stable across the classifier.
 
+
+Cycle 30 closed:
+- Strip `ionice` wrapper layers before recursive classification and redirect-literal extraction so safe inner commands keep their underlying action type.
+- Support command-mode `ionice` flags `-t`/`--ignore`, `-c`/`--class`, and `-n`/`--classdata` including glued short and `--flag=value` forms while failing closed on process-targeting flags like `-p`, `-P`, `-u`, `--pid`, `--pgid`, and `--uid`.
+- Add regression coverage for safe wrapped `git status` plus secret/destructive `bash -c` redirect payloads through `ionice`, `/usr/bin/ionice`, and `command ionice` forms.
+- Re-run the full pytest suite to confirm passthrough-wrapper behavior stays stable across the classifier.
+
 Next scan ideas:
 - Probe whether `timeout --` after the duration and any clustered short-option forms deserve explicit passthrough coverage or should stay fail-closed.
-- Probe wrappers with side effects like `nohup` or `ionice` to document which ones should stay fail-closed versus classify through to the inner command.
+- Probe wrappers with side effects like `nohup` to document which ones should stay fail-closed versus classify through to the inner command.
 - Continue credential-store/path coverage for less common developer tooling.
