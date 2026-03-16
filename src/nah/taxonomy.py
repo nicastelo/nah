@@ -336,10 +336,14 @@ def classify_tokens(
 
 # Git global flags that take a value argument (must consume next token too).
 _GIT_VALUE_FLAGS = {"-C", "--git-dir", "--work-tree", "--namespace", "-c"}
+_GIT_VALUE_FLAG_PREFIXES = ("--git-dir=", "--work-tree=", "--namespace=")
 
 # Git global flags that are standalone (no value argument).
-_GIT_BOOLEAN_FLAGS = {"--no-pager", "--no-replace-objects", "--bare", "--literal-pathspecs",
-                      "--glob-pathspecs", "--noglob-pathspecs", "--no-optional-locks"}
+_GIT_BOOLEAN_FLAGS = {
+    "-p", "--paginate", "-P", "--no-pager", "--no-replace-objects",
+    "--no-optional-locks", "--no-advice", "--bare", "--literal-pathspecs",
+    "--glob-pathspecs", "--noglob-pathspecs",
+}
 
 
 def _git_has_short_flag(args: list[str], flag: str) -> bool:
@@ -364,6 +368,8 @@ def _strip_git_global_flags(tokens: list[str]) -> list[str]:
         tok = tokens[i]
         if tok in _GIT_VALUE_FLAGS:
             i += 2  # skip flag + its value
+        elif any(tok.startswith(prefix) for prefix in _GIT_VALUE_FLAG_PREFIXES):
+            i += 1  # skip =joined value flag
         elif tok in _GIT_BOOLEAN_FLAGS:
             i += 1  # skip flag only
         else:

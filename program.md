@@ -3,21 +3,21 @@
 run_tag: hackathon
 branch: autoresearch/hackathon
 status: active
-current_cycle: 16
-next_cycle: 17
+current_cycle: 17
+next_cycle: 18
 
 Context:
-- Fresh execution environment did not contain local-only loop files (`program.md`, `activity.jsonl`).
-- Reinitialized from last known branch state after commit 9f8aa67 and prior local note that next cycle had advanced past 14.
-- Cycle 16 closed remaining git flag-parity gaps around destructive branch/push forms and safe clean dry-runs.
+- Fresh clone of `autoresearch/hackathon` surfaced newer upstream code, but local loop state still last closed cycle 16.
+- Cycle 17 closed a git global-option stripping gap where valid global flags obscured the real subcommand and fell through to `unknown`.
+- The fix preserves both builtin git classification and trusted global override matching after stripping these globals.
 
-Cycle 16 closed:
-- Classify `git branch -d -f`, `-df`, `-fd`, and delete+force mixes as `git_history_rewrite`
-- Ensure destructive `git branch` delete/force flags beat listing flags like `-v`
-- Classify `git push --delete`, `git push -d`, and `git push origin :branch` as `git_history_rewrite`
-- Treat `git clean -nfd` / `-fdn` / combined `-n` short-flag clusters as `git_safe`
+Cycle 17 closed:
+- Strip equals-joined git global value flags like `--git-dir=/x`, `--work-tree=/x`, and `--namespace=ns` before subcommand classification
+- Strip additional git global boolean flags `-p` / `--paginate`, `-P` / `--no-pager`, and `--no-advice`
+- Restore expected classification for safe and destructive commands hidden behind those globals
+- Add regression coverage for both builtin classification and global override lookup paths
 
 Next scan ideas:
-- Review other combined git short-flag clusters where safe/destructive precedence may be inverted
-- Probe additional remote-destructive git forms like `git push --mirror` / `--prune` for desired policy
-- Expand sensitive credential-path coverage beyond GitHub CLI if any common auth stores are still missing
+- Probe more git global-option edge cases, especially `--config-env`, `--exec-path`, and missing-value fail-closed behavior
+- Fuzz command wrappers where global flags can hide a destructive inner subcommand
+- Continue credential-store/path coverage for less common developer tooling
