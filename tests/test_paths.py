@@ -134,6 +134,20 @@ class TestIsSensitive:
         assert pattern == "~/.docker/config.json"
         assert policy == "ask"
 
+    def test_terraform_credentials_ask(self):
+        resolved = paths.resolve_path("~/.terraform.d/credentials.tfrc.json")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.terraform.d/credentials.tfrc.json"
+        assert policy == "ask"
+
+    def test_terraformrc_ask(self):
+        resolved = paths.resolve_path("~/.terraformrc")
+        matched, pattern, policy = paths.is_sensitive(resolved)
+        assert matched is True
+        assert pattern == "~/.terraformrc"
+        assert policy == "ask"
+
     def test_env_basename(self):
         matched, pattern, policy = paths.is_sensitive("/project/.env")
         assert matched is True
@@ -214,6 +228,18 @@ class TestCheckPath:
         assert result["decision"] == "ask"
         assert "~/.docker/config.json" in result["reason"]
 
+    def test_sensitive_ask_terraform_credentials(self):
+        result = paths.check_path("Read", "~/.terraform.d/credentials.tfrc.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.terraform.d/credentials.tfrc.json" in result["reason"]
+
+    def test_sensitive_ask_terraformrc(self):
+        result = paths.check_path("Read", "~/.terraformrc")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.terraformrc" in result["reason"]
+
     def test_sensitive_block_home_env_var(self):
         result = paths.check_path("Read", "$HOME/.ssh/id_rsa")
         assert result is not None
@@ -240,6 +266,18 @@ class TestCheckPath:
         assert result is not None
         assert result["decision"] == "ask"
         assert "~/.docker/config.json" in result["reason"]
+
+    def test_sensitive_ask_terraform_credentials_home_glob(self):
+        result = paths.check_path("Read", "/home/*/.terraform.d/credentials.tfrc.json")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.terraform.d/credentials.tfrc.json" in result["reason"]
+
+    def test_sensitive_ask_terraformrc_dynamic_user_substitution(self):
+        result = paths.check_path("Read", "/Users/$(whoami)/.terraformrc")
+        assert result is not None
+        assert result["decision"] == "ask"
+        assert "~/.terraformrc" in result["reason"]
 
     def test_clean_path(self):
         result = paths.check_path("Read", "/tmp/safe.txt")
