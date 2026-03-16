@@ -27,7 +27,10 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest"]
+dev = [
+    "pytest",
+    "pyyaml>=6.0",
+]
 config = ["pyyaml>=6.0"]
 docs = ["mkdocs-material>=9.0"]
 
