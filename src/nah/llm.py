@@ -2,6 +2,7 @@
 
 import json
 import os
+import subprocess
 import sys
 import time
 import urllib.request
@@ -644,12 +645,51 @@ def _call_anthropic(
     return _parse_response(content)
 
 
+def _call_command(
+    config: dict, prompt: PromptParts,
+) -> LLMResult | None:
+    """Call an external command as an LLM provider.
+
+    Sends the user prompt on stdin and expects JSON output:
+    {"decision": "allow|block|uncertain", "reasoning": "..."}
+
+    If system_prompt_flag is set (default: --system-prompt), the system
+    prompt is passed as a CLI flag instead of being combined with stdin.
+    This is designed for `claude -p --model haiku` which needs
+    --system-prompt to override Claude Code's default system prompt.
+    """
+    cmd = config.get("command", [])
+    if not cmd:
+        return None
+    if isinstance(cmd, str):
+        cmd = cmd.split()
+    timeout = config.get("timeout", _TIMEOUT_LOCAL)
+
+    sys_flag = config.get("system_prompt_flag", "--system-prompt")
+    if sys_flag:
+        cmd = [*cmd, sys_flag, prompt.system]
+        stdin_text = prompt.user
+    else:
+        stdin_text = f"{prompt.system}\n\n{prompt.user}"
+
+    proc = subprocess.run(
+        cmd, input=stdin_text, capture_output=True, text=True,
+        timeout=timeout,
+    )
+    if proc.returncode != 0:
+        err = proc.stderr.strip()[:200]
+        sys.stderr.write(f"nah: LLM command: exit {proc.returncode}: {err}\n")
+        return None
+    return _parse_response(proc.stdout)
+
+
 _PROVIDERS = {
     "ollama": _call_ollama,
     "cortex": _call_cortex,
     "openrouter": _call_openrouter,
     "openai": _call_openai,
     "anthropic": _call_anthropic,
+    "command": _call_command,
 }
 
 
