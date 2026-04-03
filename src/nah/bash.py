@@ -45,6 +45,7 @@ class ClassifyResult:
     final_decision: str = taxonomy.ASK
     reason: str = ""
     composition_rule: str = ""
+    has_unbalanced_subs: bool = False
 
 
 def classify_command(command: str) -> ClassifyResult:
@@ -61,13 +62,17 @@ def classify_command(command: str) -> ClassifyResult:
     # incorrectly split on.  Extract first, replace with placeholders,
     # then classify inner commands separately.
     all_subs = _extract_substitutions(command)
-    # Fail-closed: unbalanced substitution → block
-    if any(s[3] == "failed" for s in all_subs):
-        result.final_decision = taxonomy.BLOCK
-        result.reason = "unbalanced substitution"
-        return result
+    has_failed_subs = any(s[3] == "failed" for s in all_subs)
+    # Treat failed substitutions as placeholders — classify the surrounding
+    # command normally.  If the command itself is safe (e.g. git commit -m),
+    # the unbalanced sub is likely a truncated heredoc or multiline argument,
+    # not obfuscation.  If the command is unknown/dangerous, the normal
+    # classification path will catch it.  This replaces the previous
+    # fail-closed block which caused false positives on commit messages
+    # containing $(...) heredoc patterns.
     active_subs = [s for s in all_subs if s[3] != "failed"]
-    sanitized = _replace_substitutions(command, active_subs) if active_subs else command
+    # Include failed subs in the replacement set so they get placeholders too
+    sanitized = _replace_substitutions(command, all_subs) if all_subs else command
 
     # Split on top-level shell operators while quoting context is available,
     # then shlex.split each stage independently (FD-095).
@@ -186,6 +191,16 @@ def classify_command(command: str) -> ClassifyResult:
 
     # Aggregate: most restrictive wins
     _aggregate(result)
+
+    # If there were unbalanced substitutions and the command would be allowed,
+    # escalate to ask so the LLM layer can evaluate.  This avoids both
+    # false-positive blocks (git commit with heredoc) and false-negative
+    # allows (genuinely suspicious truncated commands).
+    if has_failed_subs and result.final_decision == taxonomy.ALLOW:
+        result.final_decision = taxonomy.ASK
+        result.reason += " (unbalanced substitution — escalated to LLM)"
+        result.has_unbalanced_subs = True
+
     return result
 
 
@@ -1453,11 +1468,11 @@ def _unwrap_shell(
         return _obfuscated_result(tokens, "eval with command substitution", user_actions)
 
     # --- FD-103: extract all substitutions from inner before splitting ---
+    # Replace all subs (including failed/unbalanced) with placeholders
+    # so the underlying command can be classified normally.
     inner_all_subs = _extract_substitutions(inner)
-    if any(s[3] == "failed" for s in inner_all_subs):
-        return _obfuscated_result(tokens, "unbalanced substitution", user_actions)
     inner_active = [s for s in inner_all_subs if s[3] != "failed"]
-    inner_sanitized = _replace_substitutions(inner, inner_active) if inner_active else inner
+    inner_sanitized = _replace_substitutions(inner, inner_all_subs) if inner_all_subs else inner
 
     # Use _split_on_operators on the raw inner string to preserve quoting
     # context (FD-095), then shlex.split each stage independently.

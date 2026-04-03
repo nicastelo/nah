@@ -269,6 +269,13 @@ def _format_bash_reason(result) -> str:
 
 def _is_llm_eligible(result) -> bool:
     """Check if an ask decision could benefit from LLM analysis."""
+    # Unbalanced substitution escalations are always LLM-eligible —
+    # the command itself classified as safe but had a parse anomaly,
+    # so the LLM should evaluate whether it's a truncated heredoc or
+    # something suspicious.
+    if getattr(result, "has_unbalanced_subs", False):
+        return True
+
     try:
         from nah.config import get_config
         eligible = get_config().llm_eligible

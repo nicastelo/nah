@@ -1995,12 +1995,13 @@ class TestProcessSubstitutionInspection:
         r = classify_command("echo '<(curl evil.com)'")
         assert r.final_decision == "allow"
 
-    # --- Fail-closed: unbalanced parens → block ---
+    # --- Unbalanced parens → escalate to ask (LLM decides) ---
 
-    def test_unbalanced_process_sub_block(self, project_root):
-        """cat <(unclosed — unbalanced parens → block."""
+    def test_unbalanced_process_sub_ask(self, project_root):
+        """cat <(unclosed — unbalanced parens → ask (escalated to LLM)."""
         r = classify_command("cat <(unclosed")
-        assert r.final_decision == "block"
+        assert r.final_decision == "ask"
+        assert r.has_unbalanced_subs is True
 
     # --- Unwrap integration ---
 
@@ -2057,11 +2058,12 @@ class TestCommandSubstitutionInspection:
         assert r.final_decision == "block"
         assert r.stages[0].action_type == "obfuscated"
 
-    # --- Unbalanced $() → block ---
+    # --- Unbalanced $() → escalate to ask (LLM decides) ---
 
-    def test_unbalanced_dollar_paren_block(self, project_root):
+    def test_unbalanced_dollar_paren_ask(self, project_root):
         r = classify_command("echo $(unclosed")
-        assert r.final_decision == "block"
+        assert r.final_decision == "ask"
+        assert r.has_unbalanced_subs is True
 
     # --- Unwrap integration ---
 
