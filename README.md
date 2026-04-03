@@ -139,7 +139,7 @@ Tool call → nah (deterministic) → LLM (optional) → Claude Code permissions
 
 The deterministic layer always runs first — the LLM only resolves leftover "ask" decisions. If no LLM is configured or available, the decision stays "ask" and the user is prompted.
 
-Supported providers: Ollama, OpenRouter, OpenAI, Anthropic, Snowflake Cortex.
+Supported providers: Ollama, OpenRouter, OpenAI, Anthropic, Snowflake Cortex, and **command** (subprocess — see [fork additions](#fork-command-provider)).
 
 ## Configure
 
@@ -206,6 +206,40 @@ llm:
     url: https://openrouter.ai/api/v1/chat/completions
     key_env: OPENROUTER_API_KEY
     model: google/gemini-3.1-flash-lite-preview
+```
+
+### Fork: command provider
+
+This fork adds a `command` provider that shells out to an external CLI for LLM classification. Designed for `claude -p --model haiku` which uses Claude Code's built-in OAuth — no API key needed.
+
+```yaml
+# ~/.config/nah/config.yaml
+llm:
+  enabled: true
+  max_decision: allow           # LLM can approve; uncertain falls back to ask
+  eligible: default             # unknown + lang_exec + context actions
+  providers: [command]
+  command:
+    command: ["claude", "-p", "--model", "haiku", "--no-session-persistence"]
+    timeout: 30
+```
+
+The system prompt is passed via `--system-prompt` flag (configurable with `system_prompt_flag`), and the user prompt is sent on stdin. The command must return JSON: `{"decision": "allow|block|uncertain", "reasoning": "..."}`.
+
+To use a different CLI or disable the system prompt flag:
+
+```yaml
+  command:
+    command: ["my-classifier"]
+    system_prompt_flag: ""       # send both prompts combined on stdin
+    timeout: 10
+```
+
+Install this fork instead of PyPI:
+
+```bash
+pip install git+https://github.com/nicastelo/nah.git
+nah install
 ```
 
 ### Supply-chain safety

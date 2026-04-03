@@ -138,3 +138,44 @@ molds status                      # dashboard
 
 ### Inline Annotations (`%%`)
 Lines starting with `%%` are instructions to the agent. Address every one, then remove the line.
+
+---
+
+## Fork: command provider (nicastelo/nah)
+
+This is a fork of `manuelschipper/nah`. The only addition is a `command` LLM provider in `src/nah/llm.py` that shells out to an external CLI instead of making HTTP API calls.
+
+### Why
+
+nah's built-in LLM providers all require API keys. With `claude -p --model haiku --system-prompt`, we can use Claude Code's built-in OAuth (Claude Max subscription) for the LLM layer — no separate key needed.
+
+### What changed
+
+- `src/nah/llm.py`: added `_call_command()` function and registered it in `_PROVIDERS`
+- Uses `subprocess.run()` instead of `urllib.request`
+- System prompt passed via CLI flag (`--system-prompt` by default), user prompt on stdin
+- Expects JSON output: `{"decision": "allow|block|uncertain", "reasoning": "..."}`
+
+### Config
+
+```yaml
+# ~/.config/nah/config.yaml
+llm:
+  enabled: true
+  max_decision: allow
+  eligible: default
+  providers: [command]
+  command:
+    command: ["claude", "-p", "--model", "haiku", "--no-session-persistence"]
+    system_prompt_flag: "--system-prompt"  # default, can set to "" to combine on stdin
+    timeout: 30
+```
+
+### Syncing with upstream
+
+```bash
+git fetch upstream
+git merge upstream/main
+```
+
+Keep the fork minimal — only maintain what upstream doesn't support. If upstream adds a command provider, this fork can be retired.
