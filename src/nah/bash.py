@@ -81,6 +81,7 @@ def classify_command(command: str) -> ClassifyResult:
     except ValueError:
         result.final_decision = taxonomy.ASK
         result.reason = "unparseable command (shlex error)"
+        result.has_unbalanced_subs = True  # reuse flag to ensure LLM eligibility
         return result
 
     # Load config for custom classify/actions — three-table lookup
