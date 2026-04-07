@@ -436,7 +436,21 @@ def handle_bash(tool_input: dict) -> dict:
     meta = _classify_meta(result)
 
     if result.final_decision == taxonomy.BLOCK:
-        return {"decision": taxonomy.BLOCK, "reason": _format_bash_reason(result), "_meta": meta}
+        hint = _build_bash_hint(result)
+        if hint:
+            meta["hint"] = hint
+        # Never hard-block: try LLM with rich context, fall back to ask
+        llm_decision, llm_meta = _try_llm(result)
+        meta.update(llm_meta)
+        if llm_decision is not None:
+            llm_decision = _cap_llm_decision(llm_decision)
+            llm_decision["_meta"] = meta
+            return llm_decision
+        # LLM didn't decide → ask user (not block)
+        decision = {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
+        if hint:
+            decision["_hint"] = hint
+        return decision
 
     if result.final_decision == taxonomy.ASK:
         hint = _build_bash_hint(result)
@@ -607,6 +621,33 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
     return {"decision": taxonomy.ASK, "reason": msg}
 
 
+def _escalate_block_to_llm(tool_name: str, decision: dict) -> dict:
+    """Escalate a block decision through LLM. Falls back to ask (never hard-blocks).
+
+    Catch-all for blocks from non-Bash handlers (Read path checks, Write
+    content scans, unknown tools, etc.). Bash has its own richer LLM path.
+    """
+    reason = decision.get("reason", f"blocked: {tool_name}")
+    try:
+        from nah.config import get_config
+        cfg = get_config()
+        if cfg.llm and cfg.llm.get("enabled"):
+            from nah.llm import try_llm_generic
+            llm_call = try_llm_generic(
+                tool_name, reason, cfg.llm,
+                transcript_path=_transcript_path,
+            )
+            if llm_call.decision is not None:
+                capped = _cap_llm_decision(llm_call.decision)
+                capped.setdefault("_meta", {}).update(decision.get("_meta", {}))
+                return capped
+    except Exception as exc:
+        sys.stderr.write(f"nah: block escalation: {exc}\n")
+    # LLM didn't decide → fall back to ask
+    decision["decision"] = taxonomy.ASK
+    return decision
+
+
 def _is_active_allow(tool_name: str) -> bool:
     """Check if active allow emission is enabled for this tool."""
     try:
@@ -641,6 +682,10 @@ def main():
             decision = _classify_unknown_tool(canonical, tool_input)
         else:
             decision = handler(tool_input)
+
+        # Never hard-block: escalate remaining blocks through LLM → ask
+        if decision.get("decision") == taxonomy.BLOCK:
+            decision = _escalate_block_to_llm(canonical, decision)
 
         d = decision.get("decision", taxonomy.ALLOW)
 
