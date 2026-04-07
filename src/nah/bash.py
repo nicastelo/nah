@@ -1950,9 +1950,15 @@ def _check_composition(stage_results: list[StageResult], stages: list[Stage]) ->
         if taxonomy.is_decode_stage(left.tokens) and _is_exec_sink_stage(right):
             return taxonomy.BLOCK, f"obfuscated execution: {right.tokens[0]} receives decoded input", "decode | exec"
 
-        # any_read | exec → ask
+        # any_read | exec → ask (unless lang_exec is explicitly allowed)
         if left.action_type == taxonomy.FILESYSTEM_READ and _is_exec_sink_stage(right):
-            return taxonomy.ASK, f"local code execution: {right.tokens[0]} receives file input", "read | exec"
+            try:
+                from nah.config import get_config
+                lang_policy = taxonomy.get_policy(taxonomy.LANG_EXEC, get_config().actions)
+            except Exception:
+                lang_policy = taxonomy.CONTEXT
+            if lang_policy != taxonomy.ALLOW:
+                return taxonomy.ASK, f"local code execution: {right.tokens[0]} receives file input", "read | exec"
 
     return "", "", ""
 
