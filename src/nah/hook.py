@@ -587,6 +587,23 @@ def _classify_unknown_tool(canonical: str, tool_input: dict | None = None) -> di
         decision, reason = context.resolve_context(action_type, tool_input=tool_input)
         return {"decision": decision, "reason": reason}
     msg = f"unrecognized tool: {canonical}" if action_type == taxonomy.UNKNOWN else f"{action_type} → {policy}"
+
+    # Try LLM escalation for unknown/ask MCP tools (same as Bash unknowns)
+    try:
+        from nah.config import get_config as _gc
+        llm_config = _gc().llm
+        if llm_config.get("enabled"):
+            from nah.llm import try_llm_generic
+            llm_call = try_llm_generic(
+                canonical, msg, llm_config,
+                transcript_path=_transcript_path,
+            )
+            if llm_call.decision is not None:
+                capped = _cap_llm_decision(llm_call.decision)
+                return capped
+    except Exception as exc:
+        sys.stderr.write(f"nah: llm mcp: {exc}\n")
+
     return {"decision": taxonomy.ASK, "reason": msg}
 
 
