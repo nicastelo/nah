@@ -12,6 +12,7 @@ from urllib.error import URLError
 
 _TIMEOUT_LOCAL = 10
 _TIMEOUT_REMOTE = 10
+_TIMEOUT_COMMAND = 30
 
 
 class PromptParts(NamedTuple):
@@ -663,7 +664,7 @@ def _call_command(
         return None
     if isinstance(cmd, str):
         cmd = cmd.split()
-    timeout = config.get("timeout", _TIMEOUT_LOCAL)
+    timeout = config.get("timeout", _TIMEOUT_COMMAND)
 
     sys_flag = config.get("system_prompt_flag", "--system-prompt")
     if sys_flag:
