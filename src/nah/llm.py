@@ -60,6 +60,10 @@ Rules:
 - block: could cause data loss, exfiltration, credential theft, or security harm
 - uncertain: you are not sure \u2014 a human should decide
 - A false allow is worse than a false uncertain. When in doubt, say uncertain.
+- If tool info is provided, use it to understand what the command does. \
+Evaluate whether the specific invocation is consistent with the user's \
+current task shown in the conversation history. Flag misuse even for \
+otherwise-safe tools (e.g., screenshotting unrelated sensitive content).
 
 Examples:
 
@@ -104,6 +108,42 @@ def _load_type_desc(action_type: str) -> str:
         return ""
 
 
+def _lookup_tool_info(classify_result) -> str:
+    """Look up tool description from config dictionary.
+
+    Matches the first token of each stage against configured tools.
+    Returns formatted tool info string, or "" if no match.
+    """
+    try:
+        from nah.config import get_config
+        tools = get_config().tools
+    except Exception:
+        return ""
+    if not tools:
+        return ""
+
+    for sr in classify_result.stages:
+        if not sr.tokens:
+            continue
+        cmd_name = sr.tokens[0]
+        tool = tools.get(cmd_name)
+        if not tool or not isinstance(tool, dict):
+            continue
+        desc = tool.get("description", "")
+        if not desc:
+            continue
+
+        info = f"Tool info: {cmd_name} \u2014 {desc}"
+        subcommands = tool.get("subcommands", {})
+        if isinstance(subcommands, dict) and len(sr.tokens) > 1:
+            subcmd = sr.tokens[1]
+            subcmd_desc = subcommands.get(subcmd, "")
+            if subcmd_desc:
+                info += f'\n  Subcommand "{subcmd}": {subcmd_desc}'
+        return info
+    return ""
+
+
 def _build_prompt(
     classify_result, transcript_context: str = "",
 ) -> PromptParts:
@@ -134,6 +174,11 @@ def _build_prompt(
         f"Working directory: {cwd}\n"
         f"Inside project: {inside_project}\n"
     )
+
+    # Enrich with tool dictionary info for unknown commands
+    tool_info = _lookup_tool_info(classify_result)
+    if tool_info:
+        user += f"\n{tool_info}\n"
 
     # Enrich with script content for lang_exec commands (FD-079)
     if action_type == "lang_exec" and driving_stage:

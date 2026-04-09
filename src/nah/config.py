@@ -37,6 +37,7 @@ class NahConfig:
     llm_eligible: str | list = "default"
     trusted_paths: list[str] = field(default_factory=list)
     db_targets: list[dict] = field(default_factory=list)
+    tools: dict[str, dict] = field(default_factory=dict)
     log: dict = field(default_factory=dict)
     active_allow: bool | list = True
     trust_project_config: bool = False
@@ -321,6 +322,11 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     g_targets = global_cfg.get("db_targets", [])
     if isinstance(g_targets, list):
         config.db_targets = [t for t in g_targets if isinstance(t, dict)]
+
+    # tools: merge global + project (project can register additional tools)
+    g_tools = _validate_dict(global_cfg.get("tools", {}))
+    p_tools = _validate_dict(project_cfg.get("tools", {}))
+    config.tools = {**g_tools, **p_tools}
 
     # log: global config ONLY — project .nah.yaml silently ignored
     config.log = _validate_dict(global_cfg.get("log", {}))

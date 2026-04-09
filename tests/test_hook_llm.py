@@ -425,3 +425,89 @@ class TestTranscriptPassthrough:
         assert result["decision"] == "allow"
         meta = result.get("_meta", {})
         assert "llm_prompt" not in meta
+
+
+# -- Tool dictionary prompt enrichment tests --
+
+
+class TestToolDictionary:
+    """Test _lookup_tool_info and prompt enrichment from config tools."""
+
+    def test_known_tool_with_subcommand(self, project_root):
+        """Tool in dictionary with matching subcommand enriches prompt."""
+        config._cached_config = NahConfig(tools={
+            "bu": {
+                "description": "Browser automation CLI",
+                "subcommands": {"close": "Close the browser session"},
+            }
+        })
+        from nah.llm import _lookup_tool_info
+        sr = StageResult(tokens=["bu", "close"], action_type=taxonomy.UNKNOWN, decision=taxonomy.ASK, reason="unknown")
+        result = ClassifyResult(command="bu close", stages=[sr], final_decision=taxonomy.ASK, reason="unknown")
+        info = _lookup_tool_info(result)
+        assert "bu" in info
+        assert "Browser automation CLI" in info
+        assert 'Subcommand "close"' in info
+        assert "Close the browser session" in info
+
+    def test_known_tool_unknown_subcommand(self, project_root):
+        """Tool in dictionary with unrecognized subcommand still shows tool info."""
+        config._cached_config = NahConfig(tools={
+            "bu": {
+                "description": "Browser automation CLI",
+                "subcommands": {"close": "Close the browser session"},
+            }
+        })
+        from nah.llm import _lookup_tool_info
+        sr = StageResult(tokens=["bu", "frobnicate"], action_type=taxonomy.UNKNOWN, decision=taxonomy.ASK, reason="unknown")
+        result = ClassifyResult(command="bu frobnicate", stages=[sr], final_decision=taxonomy.ASK, reason="unknown")
+        info = _lookup_tool_info(result)
+        assert "Browser automation CLI" in info
+        assert "Subcommand" not in info
+
+    def test_no_match_returns_empty(self, project_root):
+        """Command not in dictionary gets no tool info."""
+        config._cached_config = NahConfig(tools={
+            "bu": {"description": "Browser automation CLI"}
+        })
+        from nah.llm import _lookup_tool_info
+        sr = StageResult(tokens=["mystery_cmd"], action_type=taxonomy.UNKNOWN, decision=taxonomy.ASK, reason="unknown")
+        result = ClassifyResult(command="mystery_cmd", stages=[sr], final_decision=taxonomy.ASK, reason="unknown")
+        info = _lookup_tool_info(result)
+        assert info == ""
+
+    def test_empty_tools_config(self, project_root):
+        """No tools configured returns empty."""
+        config._cached_config = NahConfig(tools={})
+        from nah.llm import _lookup_tool_info
+        sr = StageResult(tokens=["bu", "close"], action_type=taxonomy.UNKNOWN, decision=taxonomy.ASK, reason="unknown")
+        result = ClassifyResult(command="bu close", stages=[sr], final_decision=taxonomy.ASK, reason="unknown")
+        info = _lookup_tool_info(result)
+        assert info == ""
+
+    def test_tool_info_in_prompt(self, project_root):
+        """Tool info appears in the built LLM prompt."""
+        config._cached_config = NahConfig(tools={
+            "bu": {
+                "description": "Browser automation CLI",
+                "subcommands": {"screenshot": "Take a screenshot"},
+            }
+        })
+        from nah.llm import _build_prompt
+        sr = StageResult(tokens=["bu", "screenshot", "/tmp/out.png"], action_type=taxonomy.UNKNOWN, decision=taxonomy.ASK, reason="unknown")
+        result = ClassifyResult(command="bu screenshot /tmp/out.png", stages=[sr], final_decision=taxonomy.ASK, reason="unknown")
+        prompt = _build_prompt(result)
+        assert "Tool info: bu" in prompt.user
+        assert "Browser automation CLI" in prompt.user
+        assert "Take a screenshot" in prompt.user
+
+    def test_tool_no_description_skipped(self, project_root):
+        """Tool entry without description is skipped."""
+        config._cached_config = NahConfig(tools={
+            "bu": {"subcommands": {"close": "Close"}}
+        })
+        from nah.llm import _lookup_tool_info
+        sr = StageResult(tokens=["bu", "close"], action_type=taxonomy.UNKNOWN, decision=taxonomy.ASK, reason="unknown")
+        result = ClassifyResult(command="bu close", stages=[sr], final_decision=taxonomy.ASK, reason="unknown")
+        info = _lookup_tool_info(result)
+        assert info == ""

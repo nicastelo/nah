@@ -447,7 +447,13 @@ def handle_bash(tool_input: dict) -> dict:
             llm_decision["_meta"] = meta
             return llm_decision
         # LLM didn't decide → ask user (not block)
-        decision = {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
+        reason = _format_bash_reason(result)
+        if meta.get("llm_cascade"):
+            # LLM was consulted but uncertain — show in chain, replace → block with → llm → ask
+            idx = reason.rfind(" → ")
+            if idx >= 0:
+                reason = reason[:idx] + " → llm → ask"
+        decision = {"decision": taxonomy.ASK, "reason": reason, "_meta": meta}
         if hint:
             decision["_hint"] = hint
         return decision
@@ -465,7 +471,13 @@ def handle_bash(tool_input: dict) -> dict:
                 llm_decision["_meta"] = meta
                 return llm_decision
 
-        decision = {"decision": taxonomy.ASK, "reason": _format_bash_reason(result), "_meta": meta}
+        reason = _format_bash_reason(result)
+        if meta.get("llm_cascade"):
+            # LLM was consulted but uncertain — show in chain: unknown → llm → ask
+            idx = reason.rfind(" → ")
+            if idx >= 0:
+                reason = reason[:idx] + " → llm" + reason[idx:]
+        decision = {"decision": taxonomy.ASK, "reason": reason, "_meta": meta}
         if hint:
             decision["_hint"] = hint
         return decision
