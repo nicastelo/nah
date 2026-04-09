@@ -34,7 +34,9 @@ class TestIsLlmEligible:
         result = ClassifyResult(command="rm file.txt", stages=[sr], final_decision=taxonomy.ASK, reason="outside project root")
         assert _is_llm_eligible(result) is True
 
-    def test_sensitive_path_not_eligible(self):
+    def test_sensitive_path_not_eligible(self, project_root):
+        """Sensitive paths are not LLM-eligible under the default eligible set."""
+        config._cached_config = NahConfig()  # default: eligible="default" excludes sensitive
         sr = StageResult(
             tokens=["cat", "~/.ssh/id_rsa"],
             action_type="filesystem_read",

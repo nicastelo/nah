@@ -64,6 +64,7 @@ Rules:
 Evaluate whether the specific invocation is consistent with the user's \
 current task shown in the conversation history. Flag misuse even for \
 otherwise-safe tools (e.g., screenshotting unrelated sensitive content).
+{extra_rules}\
 
 Examples:
 
@@ -96,6 +97,24 @@ def _resolve_cwd_context() -> tuple[str, str]:
     except (ImportError, OSError):
         pass
     return cwd, inside_project
+
+
+def _load_extra_rules() -> str:
+    """Load extra LLM rules from config."""
+    try:
+        from nah.config import get_config
+        rules = get_config().llm.get("extra_rules", [])
+    except Exception:
+        return ""
+    if not isinstance(rules, list) or not rules:
+        return ""
+    lines = "\n".join(f"- {r}" for r in rules if isinstance(r, str) and r.strip())
+    return f"\n{lines}" if lines else ""
+
+
+def _get_system_prompt() -> str:
+    """Build system prompt with extra rules from config."""
+    return _SYSTEM_TEMPLATE.replace("{extra_rules}", _load_extra_rules())
 
 
 def _load_type_desc(action_type: str) -> str:
@@ -195,7 +214,7 @@ def _build_prompt(
     if transcript_context:
         user += transcript_context
 
-    return PromptParts(system=_SYSTEM_TEMPLATE, user=user)
+    return PromptParts(system=_get_system_prompt(), user=user)
 
 
 def _read_script_for_llm(tokens: list[str], max_chars: int = 8192) -> str | None:
@@ -266,7 +285,7 @@ def _build_generic_prompt(
     )
     if transcript_context:
         user += transcript_context
-    return PromptParts(system=_SYSTEM_TEMPLATE, user=user)
+    return PromptParts(system=_get_system_prompt(), user=user)
 
 
 def _parse_response(raw: str) -> LLMResult | None:
@@ -966,7 +985,7 @@ def _build_write_prompt(
         parts.append("")
         parts.append(transcript_context)
 
-    return PromptParts(system=_SYSTEM_TEMPLATE, user="\n".join(parts))
+    return PromptParts(system=_get_system_prompt(), user="\n".join(parts))
 
 
 def try_llm_write(
