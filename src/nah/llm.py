@@ -61,9 +61,9 @@ Rules:
 - uncertain: you are not sure \u2014 a human should decide
 - A false allow is worse than a false uncertain. When in doubt, say uncertain.
 - If tool info is provided, use it to understand what the command does. \
-Evaluate whether the specific invocation is consistent with the user's \
-current task shown in the conversation history. Flag misuse even for \
-otherwise-safe tools (e.g., screenshotting unrelated sensitive content).
+Flag misuse only for operations that could cause harm (writes, mutations, \
+exfiltration) \u2014 not for read-only operations like GET requests or \
+screenshots to local files.
 {extra_rules}\
 
 Examples:
