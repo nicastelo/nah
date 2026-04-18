@@ -71,13 +71,13 @@ def _rotate() -> None:
 def build_entry(
     tool: str, input_summary: str, decision: str, reason: str,
     agent: str, hook_version: str, total_ms: int,
-    meta: dict, transcript_path: str = "",
+    meta: dict, transcript_path: str = "", request_id: str | None = None,
 ) -> dict:
     """Build a structured log entry with core + detail fields."""
     from nah.paths import get_project_root  # lazy import to avoid circular
 
     entry: dict = {
-        "id": os.urandom(8).hex(),
+        "id": request_id or os.urandom(8).hex(),
         "user": os.environ.get("USER", ""),
         "agent": agent,
         "hook_version": hook_version,
@@ -114,6 +114,9 @@ def build_entry(
             "decision": meta.get("llm_decision", ""),
             "reasoning": meta.get("llm_reasoning", ""),
         }
+        alts = meta.get("llm_alternatives") or []
+        if alts:
+            llm["alternatives"] = list(alts)
         if llm_cascade:
             llm["cascade"] = llm_cascade
         prompt = meta.get("llm_prompt")

@@ -773,9 +773,89 @@ def cmd_types(args: argparse.Namespace) -> None:
             print(f"    \u21b3 {note}")
 
 
+def _show_log_entry(id_prefix: str, json_output: bool) -> None:
+    """Look up a single log entry by ID prefix and pretty-print it."""
+    from nah.log import read_log
+
+    entries = read_log(limit=10_000)
+    matches = [e for e in entries if e.get("id", "").startswith(id_prefix)]
+    if not matches:
+        print(f"No log entry found with ID prefix '{id_prefix}'.")
+        return
+    if len(matches) > 1:
+        print(f"Ambiguous ID prefix '{id_prefix}' — {len(matches)} matches. Try more characters:")
+        for e in matches[:10]:
+            print(f"  {e.get('id', '')}  {e.get('ts', '')[:19]}  {e.get('tool', '')}  {e.get('input', '')[:60]}")
+        return
+
+    entry = matches[0]
+    if json_output:
+        print(json.dumps(entry, indent=2))
+        return
+
+    print(f"ID:        {entry.get('id', '')}")
+    print(f"Time:      {entry.get('ts', '')}")
+    print(f"Tool:      {entry.get('tool', '')}")
+    print(f"Decision:  {entry.get('decision', '').upper()}  ({entry.get('ms', '')}ms)")
+    print(f"Input:     {entry.get('input', '')}")
+    if entry.get("project"):
+        print(f"Project:   {entry['project']}")
+    if entry.get("reason"):
+        print(f"Reason:    {entry['reason']}")
+    if entry.get("action_type"):
+        print(f"Action:    {entry['action_type']}")
+    if entry.get("hint"):
+        print(f"Hint:      {entry['hint']}")
+
+    classify = entry.get("classify") or {}
+    if classify.get("stages"):
+        print("\nStages:")
+        for s in classify["stages"]:
+            print(f"  - {s.get('action_type', '')}: {s.get('decision', '')} ({s.get('policy', '')}) — {s.get('reason', '')}")
+        if classify.get("composition"):
+            print(f"  composition: {classify['composition']}")
+
+    llm = entry.get("llm") or {}
+    if llm:
+        print(f"\nLLM:       {llm.get('provider', '')}"
+              + (f"/{llm.get('model', '')}" if llm.get("model") else "")
+              + f"  ({llm.get('ms', 0)}ms)")
+        if llm.get("decision"):
+            print(f"Verdict:   {llm['decision']}")
+        if llm.get("reasoning"):
+            print(f"Reasoning:\n  {llm['reasoning']}")
+        alts = llm.get("alternatives") or []
+        if alts:
+            print("Alternatives:")
+            for a in alts:
+                print(f"  \u2022 {a}")
+        cascade = llm.get("cascade") or []
+        if len(cascade) > 1 or (cascade and cascade[0].get("status") != "decided"):
+            print("Cascade:")
+            for a in cascade:
+                line = f"  - {a.get('provider', '')}: {a.get('status', '')} ({a.get('latency_ms', 0)}ms)"
+                if a.get("error"):
+                    line += f"  err={a['error']}"
+                print(line)
+        if llm.get("prompt"):
+            print(f"\nPrompt:\n{llm['prompt']}")
+
+    if entry.get("warning"):
+        print(f"\nWarning:   {entry['warning']}")
+    if entry.get("content_match"):
+        print(f"Content:   {entry['content_match']}")
+
+
 def cmd_log(args: argparse.Namespace) -> None:
     """Display recent decision log entries."""
     from nah.log import read_log
+
+    lookup_id = getattr(args, "id", None)
+    json_output = getattr(args, "json", False)
+
+    if lookup_id:
+        _show_log_entry(lookup_id, json_output)
+        return
 
     filters: dict = {}
     if getattr(args, "blocks", False):
@@ -787,7 +867,6 @@ def cmd_log(args: argparse.Namespace) -> None:
         filters["tool"] = tool
 
     limit = getattr(args, "limit", 50)
-    json_output = getattr(args, "json", False)
 
     entries = read_log(filters=filters, limit=limit)
 
@@ -891,6 +970,8 @@ def main():
     config_sub.add_parser("show", help="Display effective merged config")
     config_sub.add_parser("path", help="Show config file paths")
     log_parser = sub.add_parser("log", help="Show recent hook decisions")
+    log_parser.add_argument("id", nargs="?", default=None,
+                            help="Look up a single entry by ID prefix (from the ask/block prompt)")
     log_parser.add_argument("--blocks", action="store_true", help="Show only blocked decisions")
     log_parser.add_argument("--asks", action="store_true", help="Show only ask decisions")
     log_parser.add_argument("--tool", default=None, help="Filter by tool name (Bash, Read, Write, ...)")

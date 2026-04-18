@@ -51,6 +51,37 @@ class TestParseResponse:
         r = _parse_response(raw)
         assert r.decision == "allow"
 
+    def test_markdown_wrapped_multiline(self):
+        raw = (
+            '```json\n'
+            '{\n'
+            '  "decision": "allow",\n'
+            '  "reasoning": "safe"\n'
+            '}\n'
+            '```'
+        )
+        r = _parse_response(raw)
+        assert r.decision == "allow"
+
+    def test_markdown_fence_missing_closing(self):
+        """Claude sometimes truncates the closing fence — don't chop JSON."""
+        raw = (
+            '```json\n'
+            '{\n'
+            '  "decision": "allow",\n'
+            '  "reasoning": "safe"\n'
+            '}'
+        )
+        r = _parse_response(raw)
+        assert r is not None
+        assert r.decision == "allow"
+        assert r.reasoning == "safe"
+
+    def test_markdown_fence_with_trailing_whitespace(self):
+        raw = '```json\n{"decision": "allow", "reasoning": "ok"}\n```\n\n'
+        r = _parse_response(raw)
+        assert r.decision == "allow"
+
     def test_json_embedded_in_text_returns_none(self):
         """Prose-wrapped JSON is no longer extracted (FD-068 parser hardening)."""
         raw = 'Here is my answer: {"decision": "block", "reasoning": "bad"} done.'
@@ -71,9 +102,9 @@ class TestParseResponse:
         assert _parse_response('{"decision": "maybe", "reasoning": "x"}') is None
 
     def test_reasoning_truncated(self):
-        long_reason = "x" * 300
+        long_reason = "x" * 2000
         r = _parse_response(f'{{"decision": "allow", "reasoning": "{long_reason}"}}')
-        assert len(r.reasoning) == 200
+        assert len(r.reasoning) == 1500
 
     def test_empty_string(self):
         assert _parse_response("") is None
@@ -211,7 +242,8 @@ class TestTryLlm:
 
         result = try_llm(_make_default_result(), self._ollama_config())
         assert result.decision["decision"] == "block"
-        assert "LLM" in result.decision["reason"]
+        assert "Suggestion from nah" in result.decision["reason"]
+        assert "dangerous" in result.decision["reason"]
 
     @patch("nah.llm.urllib.request.urlopen")
     def test_backend_returns_uncertain(self, mock_urlopen):
@@ -444,6 +476,90 @@ class TestCortexProvider:
         with patch.dict("os.environ", env, clear=True):
             result = try_llm(_make_default_result(), config)
         assert result.decision is None
+
+
+# -- command provider tests --
+
+
+class TestCommandProvider:
+    def _config(self, **overrides):
+        cfg = {
+            "providers": ["command"],
+            "command": {"command": ["fake-llm"], "system_prompt_flag": ""},
+        }
+        cfg["command"].update(overrides)
+        return cfg
+
+    @patch("nah.llm.subprocess.run")
+    def test_command_allow(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"decision": "allow", "reasoning": "safe"}',
+            stderr="",
+        )
+        result = try_llm(_make_default_result(), self._config())
+        assert result.decision["decision"] == "allow"
+        assert result.provider == "command"
+        assert result.cascade[0].status == "success"
+
+    @patch("nah.llm.subprocess.run")
+    def test_command_nonzero_exit_surfaces_error(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=1, stdout="", stderr="OAuth token expired",
+        )
+        result = try_llm(_make_default_result(), self._config())
+        assert result.decision is None
+        err = result.cascade[0].error
+        assert "exit 1" in err
+        assert "OAuth token expired" in err
+
+    @patch("nah.llm.subprocess.run")
+    def test_command_unparseable_output_surfaces_error(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout="Sorry, I cannot respond to that request.",
+            stderr="",
+        )
+        result = try_llm(_make_default_result(), self._config())
+        assert result.decision is None
+        err = result.cascade[0].error
+        assert "unparseable output" in err
+        assert "Sorry" in err
+
+    @patch("nah.llm.subprocess.run")
+    def test_command_empty_output_surfaces_error(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout="", stderr="",
+        )
+        result = try_llm(_make_default_result(), self._config())
+        assert result.decision is None
+        err = result.cascade[0].error
+        assert "unparseable output" in err
+        assert "empty output" in err
+
+    def test_command_no_command_configured_skips(self):
+        config = {"providers": ["command"], "command": {}}
+        result = try_llm(_make_default_result(), config)
+        assert result.decision is None
+
+    @patch("nah.llm.subprocess.run")
+    def test_command_system_prompt_via_flag(self, mock_run):
+        """When system_prompt_flag is set, system prompt goes on argv not stdin."""
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout='{"decision": "allow", "reasoning": "ok"}',
+            stderr="",
+        )
+        cfg = self._config(system_prompt_flag="--system-prompt")
+        try_llm(_make_default_result(), cfg)
+        call_args, call_kwargs = mock_run.call_args
+        argv = call_args[0]
+        assert "--system-prompt" in argv
+        flag_idx = argv.index("--system-prompt")
+        # The token after the flag is the system prompt
+        assert "security classifier" in argv[flag_idx + 1]
+        # stdin gets the user prompt only
+        assert "security classifier" not in call_kwargs["input"]
 
 
 # -- _format_tool_use_summary tests --

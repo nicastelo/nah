@@ -14,6 +14,7 @@ nah supports 5 LLM providers. Configure one or more in cascade order -- first su
 
 | Provider | API | Default model | Auth env var |
 |----------|-----|---------------|-------------|
+| `command` | External CLI (stdin/stdout) | *(depends on CLI)* | *(none -- uses CLI auth)* |
 | `ollama` | Chat API (`/api/chat`) | `qwen3.5:9b` | *(none -- local)* |
 | `openrouter` | OpenAI-compatible | `google/gemini-3.1-flash-lite-preview` | `OPENROUTER_API_KEY` |
 | `openai` | Responses API (`/v1/responses`) | `gpt-5.3-codex` | `OPENAI_API_KEY` |
@@ -41,6 +42,26 @@ llm:
 ```
 
 ### Provider examples
+
+=== "Command (CLI)"
+
+    Shells out to any CLI that accepts a prompt on stdin and returns JSON. No API key needed — uses whatever auth the CLI provides. Great for Claude Max subscribers who already have the `claude` CLI.
+
+    ```yaml
+    llm:
+      enabled: true
+      providers: [command]
+      command:
+        command: ["claude", "-p", "--model", "haiku", "--no-session-persistence"]
+        system_prompt_flag: "--system-prompt"  # default; set to "" to combine prompts on stdin
+        timeout: 30
+    ```
+
+    The CLI must return JSON: `{"decision": "allow|block|uncertain", "reasoning": "..."}`.
+
+    !!! warning "Set `timeout: 30` for CLI providers"
+        The default timeout is **10 seconds**, tuned for local HTTP APIs. CLI tools like `claude` have startup overhead and typically need 15–25s. If the timeout is too low, every LLM call silently times out and falls back to `ask` — you'll see `LLM:(none)` in `nah log`. Bump it to `30`.
+
 
 === "Ollama (local)"
 

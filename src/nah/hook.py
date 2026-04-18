@@ -69,8 +69,14 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
         llm_call = try_llm_write(tool_name, tool_input, decision, cfg.llm, _transcript_path)
         if llm_call.decision is not None:
             return llm_call.decision, _build_llm_meta(llm_call, cfg)
-        # LLM said uncertain (reached but undecided) — escalate to ask
-        if llm_call.cascade:
+        # No decision from provider. Two distinct cases:
+        #  (a) a provider reached the model and returned "uncertain" — escalate
+        #      to ask so a human can decide.
+        #  (b) every provider errored out (timeout, network, bad config) — the
+        #      LLM never actually ran. Fail open to the structural decision;
+        #      surfacing this as "uncertain" is misleading and spammy.
+        had_uncertain = any(a.status == "uncertain" for a in llm_call.cascade)
+        if had_uncertain:
             attempts = "; ".join(
                 f"{a.provider}={a.status}({a.latency_ms}ms){' err=' + a.error if a.error else ''}"
                 for a in llm_call.cascade
@@ -81,7 +87,14 @@ def _try_llm_write(tool_name: str, tool_input: dict, decision: dict) -> tuple[di
                 "reason": f"{tool_name} (LLM): uncertain — {llm_call.reasoning or 'human review needed'}",
             }
             return ask, _build_llm_meta(llm_call, cfg)
-        sys.stderr.write(f"nah: LLM write: no providers responded for {tool_name}\n")
+        if llm_call.cascade:
+            errs = "; ".join(
+                f"{a.provider}={a.status}({a.latency_ms}ms){' err=' + a.error if a.error else ''}"
+                for a in llm_call.cascade
+            )
+            sys.stderr.write(f"nah: LLM write: unreachable [{errs}]\n")
+        else:
+            sys.stderr.write(f"nah: LLM write: no providers responded for {tool_name}\n")
         return None, {}
     except ImportError:
         return None, {}
@@ -320,6 +333,27 @@ def _is_llm_eligible(result) -> bool:
     return False
 
 
+def _append_llm_guidance(reason: str, meta: dict, label: str) -> str:
+    """Append LLM reasoning + alternatives to an ask/block reason if captured in meta.
+
+    Used when the LLM was consulted but didn't produce a decision (uncertain),
+    so the structural ask stands. Still worth showing Claude the risk context.
+    """
+    llm_reasoning = meta.get("llm_reasoning", "")
+    llm_alts = meta.get("llm_alternatives", []) or []
+    if not llm_reasoning and not llm_alts:
+        return reason
+    try:
+        from nah.llm import format_suggestion
+        block = format_suggestion(label, llm_reasoning, llm_alts)
+    except Exception as exc:
+        sys.stderr.write(f"nah: format_suggestion: {exc}\n")
+        return reason
+    if not block:
+        return reason
+    return f"{reason}\n\n{block}"
+
+
 def _build_llm_meta(llm_call, cfg) -> dict:
     """Build LLM metadata dict from an LLMCallResult."""
     llm_meta: dict = {}
@@ -329,6 +363,7 @@ def _build_llm_meta(llm_call, cfg) -> dict:
             "llm_model": llm_call.model,
             "llm_latency_ms": llm_call.latency_ms,
             "llm_reasoning": llm_call.reasoning,
+            "llm_alternatives": list(llm_call.alternatives),
             "llm_cascade": [
                 {"provider": a.provider, "status": a.status, "latency_ms": a.latency_ms,
                  **({"error": a.error} if a.error else {})}
@@ -453,6 +488,7 @@ def handle_bash(tool_input: dict) -> dict:
             idx = reason.rfind(" → ")
             if idx >= 0:
                 reason = reason[:idx] + " → llm → ask"
+        reason = _append_llm_guidance(reason, meta, "Bash")
         decision = {"decision": taxonomy.ASK, "reason": reason, "_meta": meta}
         if hint:
             decision["_hint"] = hint
@@ -477,6 +513,7 @@ def handle_bash(tool_input: dict) -> dict:
             idx = reason.rfind(" → ")
             if idx >= 0:
                 reason = reason[:idx] + " → llm" + reason[idx:]
+        reason = _append_llm_guidance(reason, meta, "Bash")
         decision = {"decision": taxonomy.ASK, "reason": reason, "_meta": meta}
         if hint:
             decision["_hint"] = hint
@@ -528,6 +565,9 @@ def _to_hook_output(decision: dict, agent: str) -> dict:
     """Convert internal decision to agent-appropriate output format."""
     d = decision.get("decision", taxonomy.ALLOW)
     reason = decision.get("reason", "")
+    request_id = decision.get("_request_id", "")
+    if d in (taxonomy.BLOCK, taxonomy.ASK) and request_id:
+        reason = f"{reason} [{request_id}]" if reason else f"[{request_id}]"
     if d == taxonomy.BLOCK:
         return agents.format_block(reason, agent)
     if d == taxonomy.ASK:
@@ -552,6 +592,7 @@ def _log_hook_decision(
         warning = decision.pop("_system_message", "")
         if warning:
             meta["warning"] = warning
+        request_id = decision.pop("_request_id", "") or None
 
         log_config = None
         try:
@@ -569,6 +610,7 @@ def _log_hook_decision(
             agent=agent, hook_version=__version__,
             total_ms=total_ms, meta=meta,
             transcript_path=_transcript_path,
+            request_id=request_id,
         )
 
         log_decision(entry, log_config)
@@ -689,6 +731,8 @@ def main():
         agent = agents.detect_agent(data)
         canonical = agents.normalize_tool(tool_name)
 
+        request_id = os.urandom(4).hex()
+
         handler = HANDLERS.get(canonical)
         if handler is None:
             decision = _classify_unknown_tool(canonical, tool_input)
@@ -698,6 +742,8 @@ def main():
         # Never hard-block: escalate remaining blocks through LLM → ask
         if decision.get("decision") == taxonomy.BLOCK:
             decision = _escalate_block_to_llm(canonical, decision)
+
+        decision["_request_id"] = request_id
 
         d = decision.get("decision", taxonomy.ALLOW)
 

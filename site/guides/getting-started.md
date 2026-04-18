@@ -17,6 +17,36 @@ That's it. nah is now guarding every tool call in Claude Code.
     ```
     Installs `pyyaml` for YAML config file parsing. Without it, config files are ignored (stderr warning).
 
+## Enable the LLM layer (recommended)
+
+Out of the box, nah prompts you for every command it doesn't recognize. The LLM layer lets an LLM resolve these ambiguous cases automatically — you only get prompted when something is genuinely risky.
+
+The quickest setup uses the `command` provider with the `claude` CLI (no API key needed if you have a Claude Max subscription):
+
+```bash
+pip install nah[config]   # YAML config support
+```
+
+```yaml
+# ~/.config/nah/config.yaml
+llm:
+  enabled: true
+  providers: [command]
+  command:
+    command: ["claude", "-p", "--model", "haiku", "--no-session-persistence"]
+```
+
+Verify it works:
+
+```
+$ nah test "defaults read com.apple.dock autohide"
+LLM eligible: yes
+LLM decision: ALLOW
+LLM reason:   macOS 'defaults read' — read-only system utility. No risk.
+```
+
+See [LLM Layer](../configuration/llm.md) for all provider options.
+
 ## See it in action
 
 Clone the repo and run the security demo inside Claude Code to see nah intercepting real tool calls:

@@ -80,6 +80,27 @@ pip uninstall nah
 
 `nah uninstall` removes hook entries from `settings.json` and deletes the hook script.
 
+## Enable the LLM layer (recommended)
+
+Without the LLM layer, nah prompts you for every command it doesn't recognize. With it, an LLM resolves ambiguous cases automatically — fewer interruptions, same safety.
+
+If you have a Claude Max subscription, the easiest option is the `command` provider — it uses the `claude` CLI you already have, no API key needed:
+
+```bash
+pip install nah[config]   # YAML config support
+```
+
+```yaml
+# ~/.config/nah/config.yaml
+llm:
+  enabled: true
+  providers: [command]
+  command:
+    command: ["claude", "-p", "--model", "haiku", "--no-session-persistence"]
+```
+
+See [LLM Layer](configuration/llm.md) for all provider options (Ollama, OpenRouter, OpenAI, Anthropic, Cortex).
+
 ## Verify installation
 
 ```bash
