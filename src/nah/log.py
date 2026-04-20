@@ -164,6 +164,9 @@ def redact_input(tool: str, tool_input: dict) -> str:
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         return tool_input.get("file_path", "") or tool_input.get("notebook_path", "")
 
+    if tool == "WebFetch":
+        return tool_input.get("url", "")[:200]
+
     if tool.startswith("mcp__"):
         for key, val in tool_input.items():
             return f"{key}={str(val)[:100]}"

@@ -67,7 +67,7 @@ active_allow: [Bash, Read, Glob, Grep]
 active_allow: false
 ```
 
-Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`. See [configuration docs](https://schipper.ai/nah/configuration/).
+Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `WebFetch`. See [configuration docs](https://schipper.ai/nah/configuration/).
 
 To uninstall: `nah uninstall && pip uninstall nah`.
 

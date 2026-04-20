@@ -31,9 +31,9 @@ The core hook has **zero external dependencies** — it runs on Python's stdlib 
 
 ## How permissions work
 
-When active (via `nah claude` or `nah install`), nah takes over permissions for Bash, Read, Write, Edit, Glob, Grep, and all MCP tools. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
+When active (via `nah claude` or `nah install`), nah takes over permissions for Bash, Read, Write, Edit, Glob, Grep, WebFetch, and all MCP tools. Safe operations go through automatically, dangerous ones are blocked, ambiguous ones ask.
 
-WebFetch and WebSearch are not guarded by nah. Claude Code handles those with its own permission prompts.
+WebSearch is not guarded by nah. Claude Code handles it with its own permission prompt.
 
 **Don't use `--dangerously-skip-permissions`** — just run `claude` in default mode. In `--dangerously-skip-permissions` mode, hooks [fire asynchronously](https://github.com/anthropics/claude-code/issues/20946) and commands execute before nah can block them.
 
@@ -58,7 +58,7 @@ nah still classifies **all** tool calls regardless of this setting — it will s
 | `false` | Never actively allow — nah only blocks and asks |
 | list of tool names | Actively allow only the listed tools |
 
-Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`.
+Valid tool names: `Bash`, `Read`, `Write`, `Edit`, `Glob`, `Grep`, `WebFetch`.
 
 ## Update
 

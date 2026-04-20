@@ -108,10 +108,11 @@ Shows the full classification pipeline: stages, action types, policies, composit
 
 | Flag | Description |
 |------|-------------|
-| `--tool TOOL` | Tool name: `Bash` (default), `Read`, `Write`, `Edit`, `Grep`, `Glob`, `mcp__*` |
+| `--tool TOOL` | Tool name: `Bash` (default), `Read`, `Write`, `Edit`, `Grep`, `Glob`, `WebFetch`, `mcp__*` |
 | `--path PATH` | Path for Read/Write/Edit/Glob tool input |
 | `--content TEXT` | Content for Write/Edit content inspection |
 | `--pattern TEXT` | Pattern for Grep credential search detection |
+| `--url URL` | URL for WebFetch host check |
 | `args` | Command string or tool input (positional, required for Bash) |
 
 ### nah types

@@ -10,10 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Inline code inspection** — `python3 -c 'print(1)'`, `node -e`, `ruby -e`, `perl -e`, `php -r` inline code is now content-scanned instead of blindly prompting. Safe inline → allow, dangerous patterns → ask/block. LLM veto gate fires on clean inline code (same defense-in-depth as script files). LLM prompt now includes inline code for enrichment (nah-koi.1)
+- **WebFetch tool guard** — new handler classifies WebFetch calls by hostname: `known_registries` entries bypass instantly, unknown hosts route through the LLM (so rules like "public GET = safe" in `extra_rules` apply without prompting). `nah test --tool WebFetch --url ...` dry-runs the classifier. `nah update` adds the WebFetch matcher on upgrade
+- **LLM structured alternatives** — the classifier prompt now asks for an `alternatives[]` field alongside `reasoning`, and the result surfaces those suggestions to the downstream agent in block/ask reasons. `nah log <id>` renders them as a bulleted list
 
 ### Fixed
 
 - **LLM observability for write-like tools** — LLM metadata (provider, model, latency, reasoning) now always logged for Write/Edit/NotebookEdit/MultiEdit, even when LLM agrees with the deterministic decision or all providers fail. Missing API keys now logged to stderr (`nah: LLM: OPENROUTER_API_KEY not set`) and to the structured log with `provider: (none)` and cascade errors. Previously missing keys caused silent 34ms "uncertain — human review needed" with no trace of why
+- **LLM response parser** — markdown fence stripping no longer chops valid JSON when the closing ` ``` ` is missing or followed by trailing text (common with `claude -p` output). System prompt now explicitly asks for raw JSON without fences to reduce the parser's work. Fix pairs with specific error messages in the command provider — log cascades now show `exit N`, `unparseable output`, or `(empty output)` instead of the generic "missing key or config" that applied only to API-key providers
 
 ## [0.5.5] - 2026-03-26
 

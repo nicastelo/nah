@@ -426,6 +426,16 @@ def cmd_test(args: argparse.Namespace) -> None:
         reason = decision.get("reason", "")
         if reason:
             print(f"Reason:   {reason}")
+    elif tool == "WebFetch":
+        from nah.hook import handle_webfetch
+        url = getattr(args, "url", None) or (input_args[0] if input_args else "")
+        decision = handle_webfetch({"url": url})
+        print(f"Tool:     {tool}")
+        print(f"URL:      {url}")
+        print(f"Decision: {decision['decision'].upper()}")
+        reason = decision.get("reason", "")
+        if reason:
+            print(f"Reason:   {reason}")
     elif tool.startswith("mcp__"):
         # MCP tools: classify via taxonomy
         from nah.hook import _classify_unknown_tool
@@ -963,6 +973,7 @@ def main():
     test_parser.add_argument("--path", default=None, help="File/dir path for tool input")
     test_parser.add_argument("--content", default=None, help="Content for Write/Edit inspection")
     test_parser.add_argument("--pattern", default=None, help="Search pattern for Grep")
+    test_parser.add_argument("--url", default=None, help="URL for WebFetch")
     test_parser.add_argument("--config", default=None, help="Inline JSON config override")
     test_parser.add_argument("args", nargs="*", help="Command string or tool input")
     config_parser = sub.add_parser("config", help="Show config info")

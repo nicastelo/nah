@@ -3,6 +3,7 @@
 import json
 import os
 import sys
+import urllib.parse
 
 from nah import agents, context, paths, taxonomy
 from nah.bash import classify_command
@@ -260,6 +261,84 @@ def handle_grep(tool_input: dict) -> dict:
                 }
 
     return {"decision": taxonomy.ALLOW}
+
+
+_DNS_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-:"
+)
+
+
+def _extract_webfetch_host(url: str) -> str | None:
+    """Parse hostname from a WebFetch url. Treats bare domains as https.
+
+    Returns None for clearly invalid inputs (empty, whitespace, non-DNS
+    characters) so the handler can surface an explicit parse failure
+    rather than silently treating garbage as a hostname.
+    """
+    if not url:
+        return None
+    url = url.strip()
+    if not url:
+        return None
+    if "://" not in url:
+        url = "https://" + url
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except (ValueError, AttributeError):
+        return None
+    host = parsed.hostname
+    if not host or "." not in host:
+        return None
+    # Reject anything that isn't a plausible DNS name.
+    if any(c not in _DNS_CHARS for c in host):
+        return None
+    return host
+
+
+def handle_webfetch(tool_input: dict) -> dict:
+    """Guard WebFetch: allow trusted hosts, route others through LLM.
+
+    WebFetch performs a GET-like retrieval of a URL. Host trust mirrors
+    the network_outbound flow in context.py — known_registries bypass
+    the prompt, everything else falls through to the LLM (which applies
+    any user extra_rules about public-URL reads).
+    """
+    url = tool_input.get("url", "")
+    if not url:
+        return {"decision": taxonomy.ALLOW}
+
+    host = _extract_webfetch_host(url)
+    if host is None:
+        return {
+            "decision": taxonomy.ASK,
+            "reason": f"WebFetch: could not parse URL: {url[:100]}",
+        }
+
+    context._ensure_known_hosts_merged()
+    if host in context._known_hosts:
+        return {
+            "decision": taxonomy.ALLOW,
+            "reason": f"known host: {host}",
+        }
+
+    det_result = {
+        "decision": taxonomy.ASK,
+        "reason": f"WebFetch: unknown host: {host}",
+    }
+    try:
+        from nah.config import get_config
+        llm_config = get_config().llm
+        if llm_config.get("enabled"):
+            from nah.llm import try_llm_generic
+            llm_call = try_llm_generic(
+                "WebFetch", det_result["reason"], llm_config,
+                transcript_path=_transcript_path,
+            )
+            if llm_call.decision is not None:
+                return _cap_llm_decision(llm_call.decision)
+    except Exception as exc:
+        sys.stderr.write(f"nah: llm webfetch: {exc}\n")
+    return det_result
 
 
 def _extract_target_from_tokens(tokens: list[str]) -> str | None:
@@ -558,6 +637,7 @@ HANDLERS = {
     "NotebookEdit": handle_notebookedit,
     "Glob": handle_glob,
     "Grep": handle_grep,
+    "WebFetch": handle_webfetch,
 }
 
 
