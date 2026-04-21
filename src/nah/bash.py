@@ -36,6 +36,7 @@ class StageResult:
     decision: str = taxonomy.ASK
     reason: str = ""
     redirect_target: str = ""
+    heredoc_literal: str = ""
 
 
 @dataclass
@@ -73,6 +74,11 @@ def classify_command(command: str) -> ClassifyResult:
     active_subs = [s for s in all_subs if s[3] != "failed"]
     # Include failed subs in the replacement set so they get placeholders too
     sanitized = _replace_substitutions(command, all_subs) if all_subs else command
+
+    # Strip heredoc bodies before shell parsing. Bodies can contain
+    # apostrophes or pipes that confuse the shell quote/operator state
+    # machines; we re-attach them to stages below by counting openers.
+    sanitized, heredoc_bodies = _strip_heredoc_bodies(sanitized)
 
     # Split on top-level shell operators while quoting context is available,
     # then shlex.split each stage independently (FD-095).
@@ -149,11 +155,16 @@ def classify_command(command: str) -> ClassifyResult:
 
     # Decompose each raw stage into classified stages
     stages: list[Stage] = []
+    body_idx = 0
     for stage_str, op in raw_stages:
         stage_str = stage_str.strip()
         if not stage_str:
             continue
-        heredoc_literal = _extract_heredoc_literal(stage_str)
+        # Re-attach stripped heredoc bodies by counting openers in this stage.
+        opener_count = len(_HEREDOC_OPENER_RE.findall(stage_str))
+        stage_bodies = heredoc_bodies[body_idx:body_idx + opener_count]
+        body_idx += opener_count
+        heredoc_literal = "\n".join(stage_bodies) if stage_bodies else ""
         try:
             tokens = shlex.split(stage_str)
         except ValueError:
@@ -501,6 +512,108 @@ def _extract_heredoc_literal(stage_str: str) -> str:
     return ""
 
 
+_HEREDOC_OPENER_RE = re.compile(
+    r"<<(-?)\s*(?P<quote>['\"]?)(?P<delim>[^\s'\"<>|;&]+)(?P=quote)"
+)
+
+
+def _strip_heredoc_bodies(command: str) -> tuple[str, list[str]]:
+    """Remove heredoc bodies from a command for quote-safe shell parsing.
+
+    Shlex and _split_on_operators track single/double quotes to know where
+    shell operators are "real". A heredoc body is not shell syntax, but it
+    can contain apostrophes (don't), pipes, or other metacharacters that
+    confuse the quote state machine and cause spurious "No closing quotation"
+    errors or bad stage splits. We strip each body to "" between its opener
+    and closing delimiter, return the bodies in occurrence order, and the
+    caller re-attaches them to stages by counting openers per stage.
+
+    Here-strings (<<<) have no body and are left untouched. Openers inside
+    single/double quotes are ignored. Malformed openers (no newline, no
+    closing delimiter) are left untouched.
+    """
+    if "<<" not in command:
+        return command, []
+
+    bodies: list[str] = []
+    out: list[str] = []
+    i = 0
+    n = len(command)
+    sq = False
+    dq = False
+    while i < n:
+        c = command[i]
+        if c == "\\" and not sq and i + 1 < n:
+            out.append(command[i:i + 2])
+            i += 2
+            continue
+        if c == "'" and not dq:
+            sq = not sq
+            out.append(c)
+            i += 1
+            continue
+        if c == '"' and not sq:
+            dq = not dq
+            out.append(c)
+            i += 1
+            continue
+        if not sq and not dq and c == "<" and i + 1 < n and command[i + 1] == "<":
+            # <<< here-string has no body
+            if i + 2 < n and command[i + 2] == "<":
+                out.append(command[i:i + 3])
+                i += 3
+                continue
+            m = _HEREDOC_OPENER_RE.match(command, i)
+            if not m:
+                out.append(command[i:i + 2])
+                i += 2
+                continue
+            delimiter = m.group("delim")
+            strip_tabs = m.group(1) == "-"
+            opener_end = m.end()
+            out.append(command[i:opener_end])
+            nl = command.find("\n", opener_end)
+            if nl < 0:
+                # Opener with no body on this invocation — leave as-is
+                out.append(command[opener_end:])
+                i = n
+                break
+            out.append(command[opener_end:nl + 1])
+            body_start = nl + 1
+            # Find closing delimiter on its own line
+            j = body_start
+            closer_start = -1
+            while j < n:
+                eol = command.find("\n", j)
+                end = eol if eol >= 0 else n
+                line = command[j:end]
+                candidate = line.lstrip("\t") if strip_tabs else line
+                if candidate == delimiter:
+                    closer_start = j
+                    break
+                if eol < 0:
+                    break
+                j = eol + 1
+            if closer_start < 0:
+                # Unclosed — preserve the body (don't strip) so we don't
+                # mask a genuinely malformed command. Bail out intact.
+                out.append(command[body_start:])
+                i = n
+                break
+            bodies.append(command[body_start:closer_start])
+            closer_end = command.find("\n", closer_start)
+            if closer_end < 0:
+                out.append(command[closer_start:])
+                i = n
+                break
+            out.append(command[closer_start:closer_end + 1])
+            i = closer_end + 1
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out), bodies
+
+
 def _decompose(
     tokens: list[str],
     operator: str = "",
@@ -702,7 +815,7 @@ def _classify_stage(
 ) -> StageResult:
     """Classify a single pipeline stage."""
     tokens = stage.tokens
-    sr = StageResult(tokens=tokens)
+    sr = StageResult(tokens=tokens, heredoc_literal=stage.heredoc_literal)
 
     if not tokens:
         sr.reason = "empty stage"
@@ -1607,7 +1720,9 @@ def _apply_policy(sr: StageResult) -> None:
         sr.decision = sr.default_policy
         sr.reason = f"{sr.action_type} → {sr.default_policy}"
     elif sr.default_policy == taxonomy.CONTEXT:
-        sr.decision, sr.reason = _resolve_context(sr.action_type, sr.tokens)
+        sr.decision, sr.reason = _resolve_context(
+            sr.action_type, sr.tokens, heredoc_literal=sr.heredoc_literal,
+        )
     else:
         sr.decision = taxonomy.ASK
         sr.reason = f"unknown policy: {sr.default_policy}"
@@ -1766,7 +1881,9 @@ def _check_redirect(target: str) -> tuple[str, str]:
     return context.resolve_filesystem_context(target)
 
 
-def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
+def _resolve_context(
+    action_type: str, tokens: list[str], *, heredoc_literal: str = "",
+) -> tuple[str, str]:
     """Resolve 'context' policy by checking filesystem or network context."""
     target_path = None
     inline_code = None
@@ -1774,9 +1891,15 @@ def _resolve_context(action_type: str, tokens: list[str]) -> tuple[str, str]:
                        taxonomy.FILESYSTEM_DELETE):
         target_path = _extract_primary_target(tokens)
     elif action_type == taxonomy.LANG_EXEC:
-        target_path = _resolve_script_path(tokens)
-        if target_path is None:
-            inline_code = _extract_inline_code(tokens)
+        # A heredoc body is the script source — treat it as inline code and
+        # skip path resolution (the <<DELIM opener token would otherwise be
+        # mistaken for a script path).
+        if heredoc_literal:
+            inline_code = heredoc_literal
+        else:
+            target_path = _resolve_script_path(tokens)
+            if target_path is None:
+                inline_code = _extract_inline_code(tokens)
     return context.resolve_context(action_type, tokens=tokens, target_path=target_path,
                                    inline_code=inline_code)
 

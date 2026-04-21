@@ -14,6 +14,8 @@ _TIMEOUT_LOCAL = 10
 _TIMEOUT_REMOTE = 10
 _TIMEOUT_COMMAND = 30
 
+_MAX_WRITE_CONTENT_CHARS = 8192
+
 
 class PromptParts(NamedTuple):
     """Structured prompt with system and user components."""
@@ -241,7 +243,10 @@ def _build_prompt(
     type_label = (
         f"{action_type} \u2014 {type_desc}" if type_desc else action_type
     )
-    command = classify_result.command[:500]
+    # 8192 matches _MAX_WRITE_CONTENT_CHARS. A prior 500-char cap truncated
+    # real heredoc commands mid-expression, causing the LLM to see them as
+    # incomplete and return uncertain.
+    command = classify_result.command[:_MAX_WRITE_CONTENT_CHARS]
 
     user = (
         f"Command:\n```\n{command}\n```\n\n"
@@ -999,8 +1004,6 @@ def try_llm_generic(
 
 
 # -- Write/Edit LLM inspection (FD-080) --
-
-_MAX_WRITE_CONTENT_CHARS = 8192
 
 
 def _build_write_prompt(

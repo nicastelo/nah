@@ -159,10 +159,10 @@ class TestBuildPrompt:
         assert "some reason here" in prompt.user
 
     def test_long_command_truncated(self):
-        long_cmd = "x" * 1000
+        long_cmd = "x" * 10000
         result = self._make_result(command=long_cmd)
         prompt = _build_prompt(result)
-        assert long_cmd[:500] in prompt.user
+        assert long_cmd[:8192] in prompt.user
         assert long_cmd not in prompt.user
 
     def test_empty_stages(self):
