@@ -284,7 +284,96 @@ class TestPromptContent:
 
 
 # ===================================================================
-# 4. LIVE LLM TESTS (OpenRouter)
+# 4. SOFTEN GATE — LLM allow downgrades structural ASK → ALLOW
+# ===================================================================
+
+
+class TestSoftenGate:
+    """LLM-can-soften gate: opt-in downgrade of structural ASK to ALLOW."""
+
+    def _enable_llm(self, can_soften: bool):
+        from nah.config import get_config
+        cfg = get_config()
+        cfg.llm = {"enabled": True}
+        cfg.llm_can_soften = can_soften
+
+    def test_default_off_keeps_ask(self, project_root):
+        """Default config: LLM allow does NOT downgrade structural ASK."""
+        self._enable_llm(can_soften=False)
+        result = _handle_with_mock_llm("Write", {
+            "file_path": os.path.join(project_root, ".env.local"),
+            "content": "STRIPE_SECRET_KEY=sk_test_placeholder\n",
+        }, _mock_llm_return("allow", "placeholders only"))
+        assert result["decision"] == taxonomy.ASK
+        assert "sensitive path" in result.get("reason", "")
+
+    def test_path_ask_softened_to_allow(self, project_root):
+        """can_soften on: LLM allow downgrades path-based ASK (.env.local) → ALLOW."""
+        self._enable_llm(can_soften=True)
+        result = _handle_with_mock_llm("Write", {
+            "file_path": os.path.join(project_root, ".env.local"),
+            "content": "STRIPE_SECRET_KEY=sk_test_placeholder\n",
+        }, _mock_llm_return("allow", "placeholders only"))
+        assert result["decision"] == taxonomy.ALLOW
+
+    def test_boundary_ask_softened_to_allow(self, project_root, tmp_path):
+        """can_soften on: LLM allow downgrades boundary-based ASK → ALLOW."""
+        self._enable_llm(can_soften=True)
+        outside = str(tmp_path / "outside" / "scratch.txt")
+        os.makedirs(os.path.dirname(outside), exist_ok=True)
+        result = _handle_with_mock_llm("Write", {
+            "file_path": outside,
+            "content": "scratch\n",
+        }, _mock_llm_return("allow", "scratch file"))
+        assert result["decision"] == taxonomy.ALLOW
+
+    def test_content_match_ask_not_softened(self, project_root):
+        """Floor: content-pattern ASK stays ASK even with can_soften — _meta.content_match
+        is the marker that distinguishes content matches from path/boundary heuristics."""
+        self._enable_llm(can_soften=True)
+        # os.remove() triggers a content-pattern ASK (see test_write_os_remove_ask).
+        result = _handle_with_mock_llm("Write", {
+            "file_path": os.path.join(project_root, "cleanup.py"),
+            "content": "import os\nos.remove('/etc/passwd')\n",
+        }, _mock_llm_return("allow", "looks fine to me"))
+        # Content-match keeps the prompt regardless of LLM allow.
+        assert result["decision"] == taxonomy.ASK
+        assert "content_match" in result.get("_meta", {})
+
+    def test_structural_block_not_softened(self):
+        """Floor: structural BLOCK is never softened — LLM not even called."""
+        self._enable_llm(can_soften=True)
+        called = []
+
+        def mock_try(*args):
+            called.append(True)
+            return _mock_llm_return("allow", "trust me")
+
+        import nah.hook as hook_mod
+        original = hook_mod._try_llm_write
+        hook_mod._try_llm_write = mock_try
+        try:
+            result = hook_mod.handle_write({
+                "file_path": os.path.expanduser("~/.claude/hooks/nah_guard.py"),
+                "content": "# overwrite hook\n",
+            })
+            assert result["decision"] == taxonomy.BLOCK
+            assert called == [], "structural BLOCK must short-circuit before LLM"
+        finally:
+            hook_mod._try_llm_write = original
+
+    def test_llm_ask_does_not_soften(self, project_root):
+        """LLM ASK (not allow) leaves structural ASK alone — only allow softens."""
+        self._enable_llm(can_soften=True)
+        result = _handle_with_mock_llm("Write", {
+            "file_path": os.path.join(project_root, ".env.local"),
+            "content": "AUTH_SECRET=dev-placeholder\n",
+        }, _mock_llm_return("ask", "uncertain"))
+        assert result["decision"] == taxonomy.ASK
+
+
+# ===================================================================
+# 5. LIVE LLM TESTS (OpenRouter)
 # ===================================================================
 
 

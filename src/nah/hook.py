@@ -167,9 +167,36 @@ def _llm_veto_gate(tool_name: str, tool_input: dict, det_result: dict) -> dict:
         capped.setdefault("_meta", {}).update(llm_meta)
         capped["_system_message"] = det_result.get("_system_message", "")
         return capped
-    # LLM is same or weaker — keep structural decision (with warning attached)
 
+    # Soften: LLM allow can downgrade structural ASK → ALLOW.
+    # Floor rules: never soften BLOCK; never soften content-pattern ASK
+    # (those are stronger signals than path/boundary heuristics).
+    if (capped_d == taxonomy.ALLOW
+            and structural_d == taxonomy.ASK
+            and _should_soften(det_result)):
+        return {
+            "decision": taxonomy.ALLOW,
+            "_meta": det_result.get("_meta", {}),
+        }
+
+    # LLM is same or weaker — keep structural decision (with warning attached)
     return det_result
+
+
+def _should_soften(det_result: dict) -> bool:
+    """Whether structural ASK is eligible for LLM softening.
+
+    Floor: content-pattern matches (real credential-shaped strings) carry
+    a `content_match` meta field and must keep the prompt regardless.
+    """
+    try:
+        from nah.config import get_config
+        if not get_config().llm_can_soften:
+            return False
+    except Exception as exc:
+        sys.stderr.write(f"nah: config: llm_can_soften: {exc}\n")
+        return False
+    return "content_match" not in det_result.get("_meta", {})
 
 
 def _handle_write_with_llm(tool_name: str, tool_input: dict, content_field: str) -> dict:

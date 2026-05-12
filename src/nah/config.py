@@ -35,6 +35,7 @@ class NahConfig:
     llm: dict = field(default_factory=dict)
     llm_max_decision: str = "ask"  # default: LLM can't escalate past ask
     llm_eligible: str | list = "default"
+    llm_can_soften: bool = False  # default off: LLM allow does not downgrade structural ASK
     trusted_paths: list[str] = field(default_factory=list)
     db_targets: list[dict] = field(default_factory=list)
     tools: dict[str, dict] = field(default_factory=dict)
@@ -295,6 +296,9 @@ def _merge_configs(global_cfg: dict, project_cfg: dict) -> NahConfig:
     raw_max = config.llm.get("max_decision", "")
     if raw_max and raw_max in _STRICTNESS:
         config.llm_max_decision = raw_max
+
+    # llm.can_soften: allow LLM allow to downgrade structural ASK → ALLOW (global only)
+    config.llm_can_soften = bool(config.llm.get("can_soften", False))
 
     # llm.eligible: which ask categories are LLM-eligible (global only)
     raw_eligible = config.llm.get("eligible", "default")

@@ -315,6 +315,7 @@ def cmd_config(args: argparse.Namespace) -> None:
         print(f"  llm:                   {cfg.llm or '{}'}")
         print(f"  llm_max_decision:      {cfg.llm_max_decision}")
         print(f"  llm_eligible:          {cfg.llm_eligible}")
+        print(f"  llm_can_soften:        {cfg.llm_can_soften}")
         print(f"  log:                   {cfg.log or '{}'}")
         print(f"  active_allow:          {cfg.active_allow}")
     elif sub == "path":
