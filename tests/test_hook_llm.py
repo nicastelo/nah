@@ -183,10 +183,13 @@ def _ollama_config():
     }
 
 
-def _mock_ollama_response(decision: str, reasoning: str = "test"):
+def _mock_ollama_response(decision: str, reasoning: str = "test", alternatives: list | None = None):
     """Create a mock urlopen for Ollama returning the given decision."""
+    payload: dict = {"decision": decision, "reasoning": reasoning}
+    if alternatives is not None:
+        payload["alternatives"] = alternatives
     resp_body = json.dumps({
-        "response": json.dumps({"decision": decision, "reasoning": reasoning})
+        "response": json.dumps(payload)
     }).encode()
     mock_resp = MagicMock()
     mock_resp.read.return_value = resp_body
@@ -224,6 +227,39 @@ class TestHandleBashLlm:
         result = handle_bash({"command": "somethingunknown123"})
         assert result["decision"] == "ask"
         assert "reason" in result
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_uncertain_with_no_alternatives_asks_user(self, mock_urlopen, project_root):
+        """LLM uncertain but no alternatives → ask user, no guidance block."""
+        _set_llm_config(_ollama_config())
+        mock_urlopen.return_value = _mock_ollama_response("uncertain", "cannot determine intent").return_value
+
+        result = handle_bash({"command": "somethingunknown123"})
+        assert result["decision"] == "ask"
+
+    @patch("nah.llm.urllib.request.urlopen")
+    def test_uncertain_with_alternatives_redirects_claude(self, mock_urlopen, project_root):
+        """LLM uncertain with alternatives → block with safety-layer framing for Claude.
+
+        Guidance is Claude-directed: surfaces as a block reason (Claude-visible)
+        not an ask dialog (user-visible). Claude reads the framing, decides whether
+        to follow the alternatives or ask the user to intervene.
+        """
+        _set_llm_config(_ollama_config())
+        mock_urlopen.return_value = _mock_ollama_response(
+            "uncertain",
+            "Command is incomplete — missing closing quote and pattern.",
+            alternatives=["Complete the re.findall() call", "Test in stages: fetch first, then parse"],
+        ).return_value
+
+        result = handle_bash({"command": "somethingunknown123"})
+
+        assert result["decision"] == "block"
+        reason = result.get("reason", "")
+        assert "nah safety layer" in reason
+        assert "not from the user" in reason
+        assert "ask the user to intervene" in reason
+        assert "Complete the re.findall() call" in reason
 
     def test_no_llm_config_keeps_ask(self, project_root):
         """Without LLM config, unknown commands stay as ask."""

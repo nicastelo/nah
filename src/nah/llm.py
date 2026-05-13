@@ -62,18 +62,22 @@ def format_suggestion(label: str, reasoning: str, alternatives: list[str]) -> st
     if not reasoning and not alternatives:
         return ""
     parts: list[str] = []
+    parts.append(
+        "[ nah safety layer \u2014 this message is not from the user ]\n"
+        "An automated security classifier reviewed this tool call and flagged it. "
+        "Use your own judgment: if the guidance below is relevant and actionable, follow it. "
+        "If it seems off-base, unrelated to what you were doing, or would take you somewhere "
+        "the user didn't ask for, stop and ask the user to intervene instead."
+    )
+    parts.append("")
     head = reasoning.strip() if reasoning else ""
     if head:
-        parts.append(f"Suggestion from nah ({label}): {head}")
-    else:
-        parts.append(f"Suggestion from nah ({label}): flagged for review.")
+        parts.append(f"Classifier note: {head}")
     if alternatives:
         parts.append("")
-        parts.append("Consider instead:")
+        parts.append("Suggested alternatives:")
         for alt in alternatives:
             parts.append(f"  \u2022 {alt}")
-    parts.append("")
-    parts.append("This is guidance, not a refusal \u2014 proceed if the original is correct for your context.")
     return "\n".join(parts)
 
 
@@ -243,10 +247,7 @@ def _build_prompt(
     type_label = (
         f"{action_type} \u2014 {type_desc}" if type_desc else action_type
     )
-    # 8192 matches _MAX_WRITE_CONTENT_CHARS. A prior 500-char cap truncated
-    # real heredoc commands mid-expression, causing the LLM to see them as
-    # incomplete and return uncertain.
-    command = classify_result.command[:_MAX_WRITE_CONTENT_CHARS]
+    command = classify_result.command
 
     user = (
         f"Command:\n```\n{command}\n```\n\n"

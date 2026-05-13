@@ -27,10 +27,10 @@ class TestRedactInput:
         result = log.redact_input("Bash", {"command": "git status"})
         assert result == "git status"
 
-    def test_bash_truncated_at_200(self):
+    def test_bash_full_command_preserved(self):
         long_cmd = "x" * 300
         result = log.redact_input("Bash", {"command": long_cmd})
-        assert len(result) == 200
+        assert len(result) == 300
 
     def test_bash_env_redacted(self):
         result = log.redact_input("Bash", {"command": "export SECRET_KEY=abc123"})

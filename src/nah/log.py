@@ -150,7 +150,7 @@ def _extract_action_type(meta: dict) -> str:
 def redact_input(tool: str, tool_input: dict) -> str:
     """Build a redacted input summary string."""
     if tool == "Bash":
-        cmd = tool_input.get("command", "")[:200]
+        cmd = tool_input.get("command", "")
         return _ENV_VALUE_RE.sub(r"\1***", cmd)
 
     if tool in ("Read", "Glob"):

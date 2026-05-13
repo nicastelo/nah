@@ -612,14 +612,25 @@ def handle_bash(tool_input: dict) -> dict:
                 llm_decision = _cap_llm_decision(llm_decision)
                 llm_decision["_meta"] = meta
                 return llm_decision
+            # LLM uncertain but produced guidance → redirect Claude via block.
+            # Block reasons are Claude-visible; ask dialogs are user-visible.
+            # Guidance is always for Claude, so it should never appear in a
+            # user dialog.
+            if meta.get("llm_alternatives"):
+                reason = _format_bash_reason(result)
+                if meta.get("llm_cascade"):
+                    idx = reason.rfind(" → ")
+                    if idx >= 0:
+                        reason = reason[:idx] + " → llm" + reason[idx:]
+                reason = _append_llm_guidance(reason, meta, "Bash")
+                # _guidance=True skips the top-level "never hard-block" escalation —
+                # this block is a Claude-directed redirect, not a security denial.
+                block = {"decision": taxonomy.BLOCK, "reason": reason, "_meta": meta, "_guidance": True}
+                if hint:
+                    block["_hint"] = hint
+                return block
 
         reason = _format_bash_reason(result)
-        if meta.get("llm_cascade"):
-            # LLM was consulted but uncertain — show in chain: unknown → llm → ask
-            idx = reason.rfind(" → ")
-            if idx >= 0:
-                reason = reason[:idx] + " → llm" + reason[idx:]
-        reason = _append_llm_guidance(reason, meta, "Bash")
         decision = {"decision": taxonomy.ASK, "reason": reason, "_meta": meta}
         if hint:
             decision["_hint"] = hint
@@ -846,8 +857,10 @@ def main():
         else:
             decision = handler(tool_input)
 
-        # Never hard-block: escalate remaining blocks through LLM → ask
-        if decision.get("decision") == taxonomy.BLOCK:
+        # Never hard-block: escalate remaining blocks through LLM → ask.
+        # Exception: _guidance blocks are Claude-directed redirects — they should
+        # reach Claude as a deny, not be re-escalated to a user dialog.
+        if decision.get("decision") == taxonomy.BLOCK and not decision.get("_guidance"):
             decision = _escalate_block_to_llm(canonical, decision)
 
         decision["_request_id"] = request_id

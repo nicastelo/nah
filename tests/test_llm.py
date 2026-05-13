@@ -158,12 +158,11 @@ class TestBuildPrompt:
         prompt = _build_prompt(self._make_result(reason="some reason here"))
         assert "some reason here" in prompt.user
 
-    def test_long_command_truncated(self):
+    def test_long_command_not_truncated(self):
         long_cmd = "x" * 10000
         result = self._make_result(command=long_cmd)
         prompt = _build_prompt(result)
-        assert long_cmd[:8192] in prompt.user
-        assert long_cmd not in prompt.user
+        assert long_cmd in prompt.user
 
     def test_empty_stages(self):
         result = ClassifyResult(
@@ -242,7 +241,7 @@ class TestTryLlm:
 
         result = try_llm(_make_default_result(), self._ollama_config())
         assert result.decision["decision"] == "block"
-        assert "Suggestion from nah" in result.decision["reason"]
+        assert "nah safety layer" in result.decision["reason"]
         assert "dangerous" in result.decision["reason"]
 
     @patch("nah.llm.urllib.request.urlopen")
